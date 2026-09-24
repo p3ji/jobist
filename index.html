@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Jobist helps job seekers understand fit and create grounded application drafts without technical setup.">
+    <title>Jobist — Job search, made clearer</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23176c50'/%3E%3Ctext x='16' y='23' text-anchor='middle' font-family='Georgia' font-size='22' font-style='italic' fill='white'%3EJ%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Jobist home"><span class="brand-mark" aria-hidden="true">J</span><span>jobist</span></a>
+      <div class="top-actions"><span class="privacy-pill"><span aria-hidden="true">●</span> Private on this device</span><button class="icon-button" id="helpButton" type="button" aria-label="About Jobist">?</button></div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="welcomeView">
+        <div class="hero-copy">
+          <p class="eyebrow">A calmer way to apply</p>
+          <h1>Your experience.<br><em>Clearly expressed.</em></h1>
+          <p class="hero-lede">Understand whether a role fits, see the gaps honestly, and create application drafts grounded in what you have actually done.</p>
+          <div class="hero-actions"><button class="button button-primary" id="startButton" type="button">Build my profile <span aria-hidden="true">→</span></button><button class="button button-quiet" id="loadExampleButton" type="button">Try with an example</button></div>
+          <p class="microcopy">No Git. No terminal. No automatic applications.</p>
+        </div>
+        <div class="hero-card" aria-label="How Jobist works">
+          <div class="hero-card-head"><span>One profile, better applications</span><span class="status-dot">Demo</span></div>
+          <ol class="process-list">
+            <li><span class="step-number">01</span><div><strong>Tell us what you’ve done</strong><p>Add your roles, skills, and goals. You approve every fact.</p></div></li>
+            <li><span class="step-number">02</span><div><strong>Understand the opportunity</strong><p>See requirements, genuine matches, gaps, and deal-breakers.</p></div></li>
+            <li><span class="step-number">03</span><div><strong>Create with evidence</strong><p>Draft documents where every factual claim traces to your profile.</p></div></li>
+          </ol>
+          <div class="trust-note"><span aria-hidden="true">✓</span> Your information stays in this browser in the current prototype.</div>
+        </div>
+      </section>
+
+      <section class="app-shell is-hidden" id="appView" aria-label="Jobist workspace">
+        <aside class="sidebar" aria-label="Application progress">
+          <div><p class="sidebar-label">Your workspace</p><nav aria-label="Workflow steps">
+            <button class="nav-step is-active" data-view="profile" type="button"><span>1</span> My profile <small id="profileNavStatus">In progress</small></button>
+            <button class="nav-step" data-view="job" type="button"><span>2</span> The job <small id="jobNavStatus">Not started</small></button>
+            <button class="nav-step" data-view="fit" type="button"><span>3</span> Fit report <small id="fitNavStatus">Not started</small></button>
+            <button class="nav-step" data-view="drafts" type="button"><span>4</span> Application <small id="draftsNavStatus">Not started</small></button>
+            <button class="nav-step" data-view="tracker" type="button"><span>5</span> Tracker <small id="trackerNavStatus">0 saved</small></button>
+          </nav></div>
+          <div class="sidebar-footer"><button class="text-button" id="exportDataButton" type="button">Export my data</button><button class="text-button danger-text" id="deleteDataButton" type="button">Delete my data</button></div>
+        </aside>
+
+        <div class="workspace">
+          <div class="demo-banner" role="status"><strong>Prototype mode</strong><span>Results use a transparent local rules engine, not a live AI service.</span></div>
+
+          <section class="view" id="profileView" aria-labelledby="profileTitle">
+            <div class="view-heading"><div><p class="eyebrow">Step 1 of 4</p><h2 id="profileTitle" tabindex="-1">Build your source of truth</h2><p>Only confirmed information can appear in your application.</p></div><span class="save-state" id="saveState" role="status">Saved locally</span></div>
+            <form id="profileForm" novalidate>
+              <div class="form-section"><div class="section-heading"><span class="section-icon" aria-hidden="true">01</span><div><h3>About you</h3><p>Basic information used in your documents.</p></div></div><div class="form-grid">
+                <label>Full name <input name="name" autocomplete="name" required></label><label>Professional headline <input name="headline" placeholder="e.g. Operations coordinator" required></label><label>Email <input name="email" type="email" autocomplete="email" required></label><label>Location <input name="location" autocomplete="address-level2" placeholder="e.g. Toronto, ON" required></label>
+              </div></div>
+              <div class="form-section"><div class="section-heading"><span class="section-icon" aria-hidden="true">02</span><div><h3>Your evidence</h3><p>Use one line per skill or achievement. Specific examples are strongest.</p></div></div><label>Core skills <textarea name="skills" rows="4" placeholder="Project coordination&#10;Excel and reporting&#10;Client communication" required></textarea></label><label>Experience and achievements <textarea name="experience" rows="7" placeholder="Operations Coordinator, Northstar Co., 2022–present — Coordinated 30+ client projects and improved on-time delivery from 82% to 94%." required></textarea></label></div>
+              <div class="form-section"><div class="section-heading"><span class="section-icon" aria-hidden="true">03</span><div><h3>What works for you</h3><p>Fit is about more than whether you can do the work.</p></div></div><div class="form-grid">
+                <label>Target roles <input name="targetRoles" placeholder="e.g. Project coordinator, Program coordinator" required></label><label>Languages <input name="languages" placeholder="e.g. English — fluent; French — conversational" required></label><label>Work authorization <select name="authorization" required><option value="">Choose one</option><option>Citizen or permanent resident</option><option>Open work permit</option><option>Employer-specific permit</option><option>Requires sponsorship</option><option>Prefer not to say</option></select></label><label>Work preference <select name="workPreference" required><option value="">Choose one</option><option>Remote</option><option>Hybrid</option><option>On-site</option><option>Flexible</option></select></label>
+              </div><label>Career goals <textarea name="goals" rows="3" placeholder="What would make your next role a meaningful step forward?" required></textarea></label></div>
+              <div class="form-actions"><span class="form-hint">You can edit this later. Existing drafts keep their original evidence snapshot.</span><button class="button button-primary" type="submit">Confirm profile <span aria-hidden="true">→</span></button></div>
+            </form>
+          </section>
+
+          <section class="view is-hidden" id="jobView" aria-labelledby="jobTitle">
+            <div class="view-heading"><div><p class="eyebrow">Step 2 of 4</p><h2 id="jobTitle" tabindex="-1">Add the opportunity</h2><p>Paste the complete posting so nothing important is missed.</p></div></div>
+            <form id="jobForm" novalidate><div class="form-section"><div class="form-grid"><label>Company <input name="company" required></label><label>Role title <input name="role" required></label><label>Location <input name="jobLocation" placeholder="e.g. Toronto, ON or Remote" required></label><label>Posting URL <input name="url" type="url" placeholder="Optional"></label></div><label>Full job description <textarea name="description" rows="16" placeholder="Paste the job description here…" required></textarea></label><div class="untrusted-note"><span aria-hidden="true">i</span><p><strong>Job postings are treated as untrusted content.</strong> Jobist analyzes their text but never follows instructions or links found inside them.</p></div></div><div class="form-actions"><button class="button button-secondary" type="button" data-back="profile">Back</button><button class="button button-primary" type="submit">Evaluate this job <span aria-hidden="true">→</span></button></div></form>
+          </section>
+
+          <section class="view is-hidden" id="fitView" aria-labelledby="fitTitle">
+            <div class="view-heading"><div><p class="eyebrow">Step 3 of 4</p><h2 id="fitTitle" tabindex="-1">Your fit report</h2><p id="fitSubtitle">A transparent comparison of your confirmed profile and this role.</p></div><div class="score-orbit" aria-label="Overall fit score"><strong id="overallScore">0</strong><span>/100</span></div></div>
+            <div id="gatePanel" class="gate-panel"></div><div class="score-grid" id="scoreGrid"></div>
+            <div class="insight-grid"><article class="insight-card"><div class="card-kicker positive">Strong evidence</div><h3>What you can lead with</h3><ul id="strengthList"></ul></article><article class="insight-card"><div class="card-kicker caution">Be candid</div><h3>Gaps and unknowns</h3><ul id="gapList"></ul></article></div>
+            <div class="recommendation"><div><p class="eyebrow">Recommendation</p><h3 id="recommendationTitle"></h3><p id="recommendationText"></p></div><button class="button button-primary" id="generateButton" type="button">Create my application <span aria-hidden="true">→</span></button></div><div class="form-actions"><button class="button button-secondary" type="button" data-back="job">Edit job</button></div>
+          </section>
+
+          <section class="view is-hidden" id="draftsView" aria-labelledby="draftsTitle">
+            <div class="view-heading"><div><p class="eyebrow">Step 4 of 4</p><h2 id="draftsTitle" tabindex="-1">Your application workspace</h2><p>Review every word. Evidence numbers show what supports a claim.</p></div><div class="document-actions"><button class="button button-secondary" id="printButton" type="button">Print / save PDF</button><button class="button button-primary" id="saveApplicationButton" type="button">Save to tracker</button></div></div>
+            <div class="document-tabs" role="tablist" aria-label="Application documents"><button role="tab" aria-selected="true" aria-controls="resumePanel" id="resumeTab" type="button">Tailored résumé</button><button role="tab" aria-selected="false" aria-controls="letterPanel" id="letterTab" type="button">Cover letter</button></div>
+            <div class="document-shell" id="resumePanel" role="tabpanel" aria-labelledby="resumeTab"><div class="document-page" id="resumeDocument" contenteditable="true" aria-label="Editable tailored résumé"></div></div><div class="document-shell is-hidden" id="letterPanel" role="tabpanel" aria-labelledby="letterTab"><div class="document-page letter" id="letterDocument" contenteditable="true" aria-label="Editable cover letter"></div></div><p class="edit-note">Edits are saved in this browser. Generated factual claims are marked with evidence numbers.</p>
+          </section>
+
+          <section class="view is-hidden" id="trackerView" aria-labelledby="trackerTitle"><div class="view-heading"><div><p class="eyebrow">Your progress</p><h2 id="trackerTitle" tabindex="-1">Application tracker</h2><p>Keep the outcome loop simple and honest.</p></div></div><div class="tracker-list" id="trackerList"></div></section>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="helpDialog"><button class="dialog-close" type="button" aria-label="Close">×</button><p class="eyebrow">About this prototype</p><h2>Built for clarity and control</h2><p>Jobist helps you reason about a role and prepare drafts. It does not apply for jobs, contact employers, or upload your data anywhere in this version.</p><p>The local rules engine is intentionally transparent. A production release would use a secured server-side AI workflow with consent, retention controls, and evidence validation.</p></dialog>
+    <dialog id="deleteDialog"><p class="eyebrow">Delete local data</p><h2>Remove everything?</h2><p>This clears your profile, job, drafts, and tracker from this browser. It cannot be undone.</p><div class="dialog-actions"><button class="button button-secondary" id="cancelDeleteButton" type="button">Cancel</button><button class="button button-danger" id="confirmDeleteButton" type="button">Delete everything</button></div></dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
