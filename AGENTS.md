@@ -5,13 +5,14 @@ a terminal, or a separate AI subscription to get trustworthy application help.
 
 ## Stack
 
-Vanilla HTML, CSS, and JavaScript with no build step. The current vertical slice
-persists private demo data in the browser and uses a transparent deterministic
-evaluation/drafting engine.
+Vanilla HTML, CSS, and JavaScript with no build step, plus a dependency-free
+Python static server and ephemeral Gemini proxy. Workspace state is stored in
+the browser. Gemini keys are session-only and never written to storage or logs.
+The deterministic engine is restricted to the clearly labelled example flow.
 
 ## Run
 
-Open `index.html` directly or run `python -m http.server 8080`.
+Run `python server.py` and open `http://localhost:8080`.
 
 ## Rules
 
