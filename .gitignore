@@ -7,3 +7,6 @@ __pycache__/
 .env.*
 test_cases/
 test_profiles/
+test-results/
+playwright-report/
+
