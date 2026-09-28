@@ -839,11 +839,12 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
   }
 
   function showApp(view = "profile") {
+    const targetView = canOpen(view) ? view : "profile";
     $("#welcomeView").classList.add("is-hidden");
     $("#appView").classList.remove("is-hidden");
     populateForms();
     renderIntakeSources();
-    showView(view, false);
+    showView(targetView, true);
     updateNavigation();
   }
 
@@ -1126,7 +1127,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     URL.revokeObjectURL(url);
   }
 
-  $("#startButton").addEventListener("click", () => showApp(state.currentView || "profile"));
+  $("#startButton").addEventListener("click", () => showApp("profile"));
   $("#loadExampleButton").addEventListener("click", () => {
     state = exampleState();
     state.evaluation = evaluate(state.profile, state.job);
