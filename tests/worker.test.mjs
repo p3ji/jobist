@@ -125,7 +125,7 @@ test("Gemini proxy uses worker secret when client provides no API key", async ()
     assert.equal(response.status, 200);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].options.headers["x-goog-api-key"], "worker-secret-gemini-key");
-    assert.match(calls[0].url, /gemini-3\.5-flash-lite/);
+    assert.match(calls[0].url, /gemini-2\.5-flash/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -138,7 +138,7 @@ test("/api/ai/config returns available default secrets and model", async () => {
   const data = await response.json();
   assert.equal(data.defaultGeminiAvailable, true);
   assert.equal(data.defaultCohereAvailable, true);
-  assert.equal(data.defaultModel, "gemini-3.5-flash-lite");
+  assert.equal(data.defaultModel, "gemini-2.5-flash");
 
   const responseEmpty = await worker.fetch(new Request(`${site}/api/ai/config`), env);
   const dataEmpty = await responseEmpty.json();

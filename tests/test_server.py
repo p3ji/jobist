@@ -79,7 +79,7 @@ class LocalAiTests(unittest.TestCase):
         self.assertEqual(responses[0][0], 200)
         self.assertTrue(responses[0][1]["defaultGeminiAvailable"])
         self.assertFalse(responses[0][1]["defaultCohereAvailable"])
-        self.assertEqual(responses[0][1]["defaultModel"], "gemini-3.5-flash-lite")
+        self.assertEqual(responses[0][1]["defaultModel"], "gemini-2.5-flash")
 
     def test_rerank_returns_false_when_unconfigured(self):
         handler = object.__new__(server.JobistHandler)

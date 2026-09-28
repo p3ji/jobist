@@ -88,7 +88,7 @@ async function handleAi(request, env) {
   if (provider !== "gemini") return jsonResponse(400, { error: "Choose an AI provider" });
   const clientKey = (typeof body.apiKey === "string" && body.apiKey.trim().length >= 10) ? body.apiKey.trim() : "";
   const apiKey = clientKey || await resolveSecret(env, "GEMINI_API_KEY", "GOOGLE_API_KEY");
-  const model = (typeof body.model === "string" && body.model.trim()) ? body.model.trim() : "gemini-3.5-flash-lite";
+  const model = (typeof body.model === "string" && body.model.trim()) ? body.model.trim() : "gemini-2.5-flash";
   const { prompt, schema, file } = body;
   if (!apiKey || apiKey.length < 10) return jsonResponse(400, { error: "A valid Gemini API key is required" });
   if (typeof model !== "string" || model.length > 200 || !MODEL_PATTERN.test(model)) return jsonResponse(400, { error: "Unsupported model name" });
@@ -199,7 +199,7 @@ export default {
       return jsonResponse(200, {
         defaultGeminiAvailable: Boolean(defaultGemini && defaultGemini.length >= 10),
         defaultCohereAvailable: Boolean(defaultCohere && defaultCohere.length >= 10),
-        defaultModel: "gemini-3.5-flash-lite",
+        defaultModel: "gemini-2.5-flash",
         envKeys: Object.keys(env || {}).filter(k => k !== "ASSETS"),
       });
     }

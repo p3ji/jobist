@@ -554,7 +554,7 @@ class JobistHandler(SimpleHTTPRequestHandler):
             self._json_response(HTTPStatus.OK, {
                 "defaultGeminiAvailable": bool(get_env_key("GEMINI_API_KEY")),
                 "defaultCohereAvailable": bool(get_env_key("COHERE_API_KEY")),
-                "defaultModel": "gemini-3.5-flash-lite",
+                "defaultModel": "gemini-2.5-flash",
             })
             return
         elif path == "/api/local-models":
@@ -651,7 +651,7 @@ class JobistHandler(SimpleHTTPRequestHandler):
             return
         provider = body.get("provider", "gemini" if self.path == "/api/gemini" else None)
         api_key = (body.get("apiKey") or get_env_key("GEMINI_API_KEY") or "").strip()
-        model = (body.get("model") or "gemini-3.5-flash-lite").strip()
+        model = (body.get("model") or "gemini-2.5-flash").strip()
         prompt = body.get("prompt")
         schema = body.get("schema")
         file_data = body.get("file")

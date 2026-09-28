@@ -89,8 +89,8 @@
   });
 
   let state = loadState();
-  const aiSession = { provider: null, apiKey: "", model: "gemini-3.5-flash-lite", isDefaultKey: false };
-  let serverAiConfig = { defaultGeminiAvailable: false, defaultCohereAvailable: false, defaultModel: "gemini-3.5-flash-lite" };
+  const aiSession = { provider: null, apiKey: "", model: "gemini-2.5-flash", isDefaultKey: false };
+  let serverAiConfig = { defaultGeminiAvailable: false, defaultCohereAvailable: false, defaultModel: "gemini-2.5-flash" };
   let toastTimer;
   let pendingJobReview = false;
   let pendingIntakeSources = [];
@@ -144,7 +144,7 @@
         body: JSON.stringify({
           provider: selected.provider,
           ...(selected.provider === "gemini" && selected.apiKey ? { apiKey: selected.apiKey } : {}),
-          model: selected.model || "gemini-3.5-flash-lite",
+          model: selected.model || "gemini-2.5-flash",
           prompt,
           schema,
           file,
@@ -1624,7 +1624,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
         serverAiConfig = await response.json();
         if (serverAiConfig.defaultGeminiAvailable && !aiSession.provider) {
           aiSession.provider = "gemini";
-          aiSession.model = serverAiConfig.defaultModel || "gemini-3.5-flash-lite";
+          aiSession.model = serverAiConfig.defaultModel || "gemini-2.5-flash";
           aiSession.isDefaultKey = true;
           updateProviderUi();
         }
@@ -1690,7 +1690,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       Object.assign(aiSession, selected);
     } else {
       const enteredKey = $("#apiKeyInput").value.trim();
-      const model = $("#modelInput").value || "gemini-3.5-flash-lite";
+      const model = $("#modelInput").value || "gemini-2.5-flash";
       if (!enteredKey && serverAiConfig.defaultGeminiAvailable) {
         aiSession.provider = "gemini";
         aiSession.apiKey = "";
