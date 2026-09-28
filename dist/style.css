@@ -225,7 +225,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .gate .gate-status { flex: 0 0 auto; min-width: 60px; padding: .22rem .45rem; border-radius: 999px; text-align: center; font-size: .65rem; font-weight: 700; }
 .gate.pass .gate-status { background: var(--green-soft); color: var(--green-dark); }
 .gate.flag .gate-status { background: var(--orange-soft); color: #814524; }
-.score-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin: 1.2rem 0; }
+.score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin: 1.2rem 0; }
 .score-card { padding: 1.1rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
 .score-card p { margin: 0; color: var(--muted); font-size: .74rem; }
 .score-card strong { display: block; margin: .4rem 0; font-size: 1.8rem; }

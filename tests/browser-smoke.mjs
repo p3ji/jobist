@@ -111,7 +111,7 @@ const fit = await evaluate(`({
 })`);
 assert(fit.visible, "Example should open the fit report");
 assert(fit.score > 0 && fit.score <= 100, "Fit score should be in range");
-assert.equal(fit.gates, 3);
+assert.equal(fit.gates, 4);
 assert(fit.strengths > 0 && fit.gaps > 0);
 assert.equal(fit.scrollWidth, 375, "Fit view has horizontal overflow at 375px");
 const mobileDataControls = await evaluate(`({
@@ -130,17 +130,19 @@ await evaluate(`(() => {
     const request = JSON.parse(options.body);
     const isEvaluation = Boolean(request.schema?.properties?.overall);
     const output = isEvaluation ? {
-      overall: 82,
+      overall: 84,
       recommendation: 'Strong fit — apply with a tailored application.',
       dimensions: [
         {name:'Technical skills',score:84,note:'Confirmed coordination and reporting evidence aligns.'},
         {name:'Experience',score:86,note:'Multiple confirmed examples map to the work.'},
+        {name:'Education & credentials',score:90,note:'Confirmed degree meets posting requirements.'},
         {name:'Work style',score:78,note:'Hybrid and cross-functional preferences align.'},
         {name:'Career direction',score:80,note:'The role advances the stated goal.'}
       ],
       gates: [
         {name:'Work eligibility',status:'PASS',note:'The confirmed profile meets the stated requirement.'},
         {name:'Language',status:'PASS',note:'English is confirmed.'},
+        {name:'Education & qualifications',status:'PASS',note:'Confirmed degree meets requirements.'},
         {name:'Location & logistics',status:'PASS',note:'Toronto hybrid aligns.'}
       ],
       strengths:['Project coordination is supported by confirmed work evidence.'],

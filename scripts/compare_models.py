@@ -36,6 +36,14 @@ MODELS_TO_TEST = [
         "reasoning": False
     },
     {
+        "id": "qwen3.6-35b-a3b-ud-q4_k_m_gguf",
+        "name": "Qwen 3.6 35B-A3B MoE",
+        "type": "light_moe_reasoning",
+        "context_limit": 131072,
+        "recommended_max_tokens": 3000,
+        "reasoning": True
+    },
+    {
         "id": "qwen3.8-27b",
         "name": "Qwen 3.8 27B (Alibaba)",
         "type": "mid_dense_reasoning",
