@@ -170,4 +170,39 @@ test("Playwright E2E Suite: Jobist live application", async (t) => {
     assert.equal(await dialog.isHidden(), true);
     await page.close();
   });
+
+  await t.test("7. Live Cloud AI CV extraction parses candidate facts into confirmed profile", async () => {
+    const page = await context.newPage();
+    await page.goto(BASE_URL);
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+
+    await page.click("#startButton");
+    await page.waitForSelector("#pasteCvPanel");
+
+    await page.evaluate(() => {
+      document.getElementById("pasteCvPanel").open = true;
+    });
+
+    const sampleCv = "Taylor Swift\nSenior Software Architect with 8 years building distributed systems in Go and Python. Designed high-throughput event processing pipelines handling 50k req/s. Skills: Go, Python, Kafka, PostgreSQL, Kubernetes.";
+    await page.fill("#pastedCv", sampleCv);
+
+    await page.click("#extractPastedCvButton");
+
+    // Wait for the extraction API call to finish
+    await page.waitForResponse(res => res.url().endsWith("/api/ai") && res.status() === 200, { timeout: 35000 });
+
+    // Review panel should automatically be activated with extracted fields
+    await page.waitForTimeout(2000);
+    const name = await page.locator("input[name=\"name\"]").inputValue();
+    assert.equal(name, "Taylor Swift");
+
+    const skills = await page.locator("textarea[name=\"skills\"]").inputValue();
+    assert.match(skills, /Python|Go|Kafka|Kubernetes/);
+
+    const exp = await page.locator("textarea[name=\"experience\"]").inputValue();
+    assert.match(exp, /event processing|pipeline|50k/i);
+
+    await page.close();
+  });
 });

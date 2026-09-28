@@ -12,3 +12,13 @@ custom_domain = true
 directory = "./dist"
 binding = "ASSETS"
 run_worker_first = true
+
+[[secrets_store_secrets]]
+binding = "GEMINI_API_KEY"
+store_id = "2be9e32136e64085bbc8245b245a1244"
+secret_name = "GEMINI_API_KEY"
+
+[[secrets_store_secrets]]
+binding = "COHERE_API_KEY"
+store_id = "2be9e32136e64085bbc8245b245a1244"
+secret_name = "COHERE_API_KEY"

@@ -103,7 +103,12 @@
   const lines = value => String(value || "").split(/\n+/).map(item => item.trim()).filter(Boolean);
   const words = value => String(value || "").toLowerCase().replace(/[^a-z0-9+#.-]+/g, " ").split(/\s+/).filter(word => word.length > 2 && !STOP_WORDS.has(word));
 
-  function requireAi() {
+  let serverConfigPromise = null;
+
+  async function requireAi() {
+    if (serverConfigPromise) {
+      try { await serverConfigPromise; } catch {}
+    }
     if (aiSession.provider === "local" && aiSession.model) return true;
     if (aiSession.provider === "gemini" && (aiSession.apiKey || aiSession.isDefaultKey)) return true;
     $("#providerDialog").showModal();
@@ -1173,7 +1178,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
   });
 
   async function beginScan(mode, button) {
-    if (!requireAi()) return;
+    if (!(await requireAi())) return;
     setActionError("#scanError");
     setBusy("#scanStatus", button, true);
     $("#discoverButton").disabled = true;
@@ -1257,7 +1262,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
   });
 
   $("#matchButton").addEventListener("click", async event => {
-    if (!state.scan?.jobs?.length || !requireAi()) return;
+    if (!state.scan?.jobs?.length || !(await requireAi())) return;
     setActionError("#scanError");
     setBusy("#matchStatus", event.currentTarget, true);
     try {
@@ -1342,7 +1347,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     if (!selected.length) { setActionError("#extractionError", "Choose documents or a folder first."); $("#resumeFile").focus(); return; }
     if (!files.length) { setActionError("#extractionError", "The selection has no supported documents. Choose PDF, DOC, DOCX, TXT, MD, TEX, or CSV files."); return; }
     if (files.length > 12) { setActionError("#extractionError", "Choose up to 12 supported documents at a time."); return; }
-    if (!requireAi()) return;
+    if (!(await requireAi())) return;
     setIntakeBusy(event.currentTarget, true);
     const known = new Set([...(Array.isArray(state.intakeSources) ? state.intakeSources : []), ...pendingIntakeSources].map(source => source.id));
     let added = 0;
@@ -1401,7 +1406,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     setActionError("#pasteError");
     const content = $("#pastedCv").value.trim();
     if (content.length < 30) { setActionError("#pasteError", "Paste at least a few sentences from your CV."); $("#pastedCv").focus(); return; }
-    if (!requireAi()) return;
+    if (!(await requireAi())) return;
     setIntakeBusy(event.currentTarget, true);
     $("#extractionStatusText").textContent = "Reading your pasted CV…";
     try {
@@ -1441,7 +1446,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
   $("#jobForm").addEventListener("submit", async event => {
     event.preventDefault();
     if (!validateForm(event.currentTarget)) return;
-    if (!requireAi()) return;
+    if (!(await requireAi())) return;
     setActionError("#evaluationError");
     const submitButton = $("button[type=submit]", event.currentTarget);
     setBusy("#evaluationStatus", submitButton, true);
@@ -1472,7 +1477,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     const blocked = state.evaluation.gates.some(gate => ["FLAG", "FAIL"].includes(gate.status));
     if (blocked && !window.confirm("This fit report contains a flag. Create drafts anyway for your review?")) return;
     const isDemo = state.evaluation.source === "demo";
-    if (!isDemo && !requireAi()) return;
+    if (!isDemo && !(await requireAi())) return;
     setActionError("#draftingError");
     $("#draftingRecoveryActions")?.classList.add("is-hidden");
     setBusy("#draftingStatus", event.currentTarget, true);
@@ -1624,7 +1629,9 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
         serverAiConfig = await response.json();
         if (serverAiConfig.defaultGeminiAvailable && !aiSession.provider) {
           aiSession.provider = "gemini";
-          aiSession.model = serverAiConfig.defaultModel || "gemini-2.5-flash";
+          aiSession.model = (serverAiConfig.defaultModel && serverAiConfig.defaultModel !== "gemini-3.5-flash-lite")
+            ? serverAiConfig.defaultModel
+            : "gemini-2.5-flash";
           aiSession.isDefaultKey = true;
           updateProviderUi();
         }
@@ -1751,7 +1758,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     state.evaluation.source = "demo";
     state.currentView = "fit";
   }
-  checkServerAiConfig();
+  serverConfigPromise = checkServerAiConfig();
   updateProviderUi();
   if (state.profile || state.job || state.applications.length) showApp(canOpen(state.currentView) ? state.currentView : "profile");
 })();
