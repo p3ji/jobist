@@ -1367,6 +1367,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
         setProfileMode("review");
         showToast(`${added} ${added === 1 ? "document" : "documents"} added for review.`);
         $("#profileForm").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
       if (failures.length) {
         const errorMsg = `${failures.join(" ")} ${added ? "Other documents were added for review." : "Try another model or format."}`;
         setActionError("#extractionError", errorMsg);

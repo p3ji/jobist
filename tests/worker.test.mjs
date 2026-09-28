@@ -180,3 +180,16 @@ test("/api/jobs/rerank calls Cohere when COHERE_API_KEY is present", async () =>
     globalThis.fetch = originalFetch;
   }
 });
+
+test("client bundle scripts parse cleanly without syntax errors", async () => {
+  const fs = await import("node:fs");
+  const appSrc = fs.readFileSync(new URL("../app.js", import.meta.url), "utf-8");
+  const distAppSrc = fs.readFileSync(new URL("../dist/app.js", import.meta.url), "utf-8");
+  assert.doesNotThrow(() => {
+    new Function(appSrc);
+  }, "app.js must parse cleanly");
+  assert.doesNotThrow(() => {
+    new Function(distAppSrc);
+  }, "dist/app.js must parse cleanly");
+});
+
