@@ -43,6 +43,7 @@
   const emptyState = () => ({
     profile: null,
     roleIdeas: null,
+    scan: null,
     job: null,
     evaluation: null,
     drafts: null,
@@ -251,10 +252,60 @@
     const ideas = state.roleIdeas;
     list.classList.toggle("is-hidden", !ideas?.suggestions?.length);
     if (!ideas?.suggestions?.length) { list.replaceChildren(); return; }
-    list.innerHTML = ideas.suggestions.map(item => `<li><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.reason)}</p><small>Based on: ${item.evidenceIds.map(id => {
+    list.innerHTML = ideas.suggestions.map((item, index) => `<li><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.reason)}</p><small>Based on: ${item.evidenceIds.map(id => {
       const source = ideas.evidence.find(entry => entry.id === id);
       return source ? escapeHtml(source.text) : "";
-    }).filter(Boolean).join("; ")}</small></li>`).join("");
+    }).filter(Boolean).join("; ")}</small><button class="button button-secondary scan-role-button" type="button" data-role-index="${index}">Search this title</button></li>`).join("");
+  }
+
+  function suggestedSearchTerms(profile) {
+    const explicit = String(profile.targetRoles || "").split(/[,;\n]/).map(value => value.trim()).find(Boolean);
+    if (explicit) return explicit;
+    const headline = String(profile.headline || "").trim();
+    if (headline) return headline;
+    return lines(profile.experience)[0]?.split(/[—–,]/)[0]?.trim() || "";
+  }
+
+  function initializeScanForm() {
+    if (!state.profile || $("#scanQuery").value.trim()) return;
+    $("#scanQuery").value = state.scan?.query || suggestedSearchTerms(state.profile);
+    const location = String(state.profile.location || "");
+    const provinceCodes = { alberta: "AB", "british columbia": "BC", manitoba: "MB", "new brunswick": "NB", newfoundland: "NL", "nova scotia": "NS", ontario: "ON", "prince edward island": "PE", quebec: "QC", québec: "QC", saskatchewan: "SK", yukon: "YT" };
+    const code = location.match(/\b(AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT)\b/i)?.[1]?.toUpperCase()
+      || Object.entries(provinceCodes).find(([name]) => location.toLowerCase().includes(name))?.[1] || "";
+    $("#scanProvince").value = state.scan?.province ?? code;
+    $("#scanLanguage").value = state.scan?.language || (/\bfrench\b|\bfran[çc]ais\b/i.test(state.profile.languages || "") ? "both" : "en");
+  }
+
+  function scanPriority(job) {
+    const profileWords = new Set(words([state.profile?.headline, state.profile?.targetRoles, state.profile?.skills, state.profile?.experience].join(" ")));
+    const titleMatches = [...new Set(words(job.title))].filter(word => profileWords.has(word));
+    const detailMatches = [...new Set(words(job.description || ""))].filter(word => profileWords.has(word));
+    const score = titleMatches.length * 4 + Math.min(detailMatches.length, 4);
+    return { score, terms: [...new Set([...titleMatches, ...detailMatches])].slice(0, 4), label: score >= 8 ? "Higher search priority" : score >= 3 ? "Possible match" : "Broader lead" };
+  }
+
+  function safePostingUrl(value) {
+    try { const url = new URL(value); return url.protocol === "https:" ? url.href : ""; }
+    catch { return ""; }
+  }
+
+  function renderScanResults() {
+    const summary = $("#scanSummary");
+    const container = $("#scanResults");
+    const scan = state.scan;
+    summary.classList.toggle("is-hidden", !scan);
+    if (!scan) { container.replaceChildren(); return; }
+    const jobs = Array.isArray(scan.jobs) ? scan.jobs : [];
+    const sources = Array.isArray(scan.sources) ? scan.sources : [];
+    const available = sources.filter(source => source.ok).map(source => source.source).join(" and ");
+    const failed = sources.filter(source => !source.ok).map(source => source.source);
+    summary.textContent = `${jobs.length} ${jobs.length === 1 ? "listing" : "listings"} found from ${available || "available sources"}${failed.length ? `. ${failed.join(" and ")} could not be checked.` : "."} Search priority uses shared terms from your confirmed profile. Check the original posting and run the full fit check before deciding to apply.`;
+    const ranked = jobs.map((job, index) => ({ job, index, priority: scanPriority(job) })).sort((a, b) => b.priority.score - a.priority.score);
+    container.innerHTML = ranked.map(({ job, index, priority }) => {
+      const url = safePostingUrl(job.url);
+      return `<article class="scan-card"><div class="scan-card-head"><div><p class="scan-source">${escapeHtml(job.source || "Job source")}${job.posted ? ` · ${escapeHtml(job.posted)}` : ""}</p><h4>${escapeHtml(job.title)}</h4><p class="scan-company">${escapeHtml(job.company || "Employer not listed")}${job.location ? ` · ${escapeHtml(job.location)}` : ""}</p></div><span class="scan-priority">${priority.label}</span></div>${priority.terms.length ? `<p class="scan-terms">Shared terms: ${escapeHtml(priority.terms.join(", "))}</p>` : ""}<div class="scan-card-actions"><button class="button button-primary" type="button" data-scan-index="${index}">Review this job</button>${url ? `<a class="button button-secondary" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Original posting</a>` : ""}</div></article>`;
+    }).join("");
   }
 
   function evidenceMarkers(ids, evidence) {
@@ -353,7 +404,7 @@
     saveState();
     if (view === "fit" && state.evaluation) renderEvaluation();
     if (view === "drafts" && state.drafts) renderDrafts();
-    if (view === "job") renderRoleIdeas();
+    if (view === "job") { initializeScanForm(); renderScanResults(); renderRoleIdeas(); }
     if (view === "tracker") renderTracker();
     updateWorkflowMessage();
     if (announce) {
@@ -372,7 +423,7 @@
     message.textContent = !state.profile
       ? "AI connected. Add a résumé and select Extract facts with AI, or enter your profile manually. Review the facts, then select Confirm profile."
       : !state.evaluation
-        ? "Profile confirmed. Paste a job description, then select Evaluate with AI to get a fit report."
+        ? "Profile confirmed. Scan current jobs or paste a posting, then select Evaluate with AI to get a fit report."
         : !state.drafts
           ? "Fit report ready. Select Draft with AI to create application documents."
           : "Application draft ready. Review it, then save it to your tracker.";
@@ -381,7 +432,7 @@
 
   function updateNavigation() {
     $("#profileNavStatus").textContent = state.profile ? "Confirmed" : "In progress";
-    $("#jobNavStatus").textContent = state.job ? "Added" : "Not started";
+    $("#jobNavStatus").textContent = state.job ? "Added" : state.scan?.jobs?.length ? `${state.scan.jobs.length} found` : "Not started";
     $("#fitNavStatus").textContent = state.evaluation ? `${state.evaluation.overall}/100` : "Not started";
     $("#draftsNavStatus").textContent = state.drafts ? "Ready" : "Not started";
     $("#trackerNavStatus").textContent = `${state.applications.length} saved`;
@@ -560,11 +611,91 @@
     if (!validateForm(event.currentTarget)) return;
     state.profile = formValues(event.currentTarget);
     state.roleIdeas = null;
+    state.scan = null;
+    $("#scanQuery").value = "";
+    $("#scanProvince").value = "";
+    $("#scanLanguage").value = "en";
     state.evaluation = null;
     state.drafts = null;
     saveState("Profile confirmed");
     updateNavigation();
     showView("job");
+  });
+
+  $("#scanForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const query = $("#scanQuery").value.trim();
+    if (query.length < 2) { setActionError("#scanError", "Enter at least two characters to search for jobs."); $("#scanQuery").focus(); return; }
+    const params = { query, province: $("#scanProvince").value, language: $("#scanLanguage").value };
+    const button = $("#scanButton");
+    setActionError("#scanError");
+    setBusy("#scanStatus", button, true);
+    try {
+      const response = await fetch("/api/jobs/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "The scan could not finish.");
+      if (!Array.isArray(result.jobs) || !Array.isArray(result.sources)) throw new Error("The job sources returned an invalid result.");
+      state.scan = { ...params, jobs: result.jobs, sources: result.sources, searchedAt: result.searchedAt };
+      saveState("Job scan saved");
+      updateNavigation();
+      renderScanResults();
+      $("#scanSummary").focus({ preventScroll: true });
+    } catch (error) {
+      setActionError("#scanError", error.message || "The scan could not finish.");
+    } finally {
+      setBusy("#scanStatus", button, false);
+    }
+  });
+
+  $("#scanResults").addEventListener("click", async event => {
+    const button = event.target.closest("button[data-scan-index]");
+    if (!button || !state.scan?.jobs) return;
+    const job = state.scan.jobs[Number(button.dataset.scanIndex)];
+    if (!job) return;
+    button.disabled = true;
+    const previousLabel = button.textContent;
+    button.textContent = "Loading posting…";
+    setActionError("#scanError");
+    try {
+      let detail = job;
+      if (job.detailId) {
+        const response = await fetch("/api/jobs/detail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.detailId, language: job.detailLang }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "The posting could not be loaded.");
+        detail = { ...job, ...result };
+      }
+      setFormValues($("#jobForm"), {
+        company: detail.company || job.company || "", role: detail.title || job.title,
+        jobLocation: detail.jobLocation || job.location || "", url: safePostingUrl(detail.url || job.url),
+        description: detail.description || "",
+      });
+      $("#jobForm").scrollIntoView({ behavior: "smooth", block: "start" });
+      if (!detail.description || !(detail.jobLocation || job.location)) {
+        setActionError("#evaluationError", !detail.description
+          ? "This source did not provide the full job description. Open the original posting and paste its description before checking fit."
+          : "This source did not provide a location. Check the original posting and enter its location before checking fit.");
+        $(detail.description ? "#jobForm [name=jobLocation]" : "#jobForm [name=description]").focus({ preventScroll: true });
+      } else {
+        setActionError("#evaluationError");
+        showToast("Posting loaded. Review it, then select Evaluate with AI.");
+        $("#jobForm [name=role]").focus({ preventScroll: true });
+      }
+    } catch (error) {
+      setActionError("#scanError", error.message || "The posting could not be loaded.");
+    } finally {
+      button.disabled = false;
+      button.textContent = previousLabel;
+    }
+  });
+
+  $("#roleSuggestions").addEventListener("click", event => {
+    const button = event.target.closest("button[data-role-index]");
+    if (!button) return;
+    const title = state.roleIdeas?.suggestions?.[Number(button.dataset.roleIndex)]?.title;
+    if (!title) return;
+    $("#scanQuery").value = title;
+    $("#scanQuery").focus();
+    $("#scanForm").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   $("#suggestRolesButton").addEventListener("click", async event => {

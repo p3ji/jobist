@@ -26,6 +26,15 @@ test("cross-origin request is rejected", async () => {
   assert.equal(response.status, 403);
 });
 
+test("job scan rejects cross-origin requests and invalid regions", async () => {
+  const makeRequest = (body, origin = site) => new Request(`${site}/api/jobs/scan`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(body),
+  });
+  assert.equal((await worker.fetch(makeRequest({ query: "coordinator" }, "https://other.example"), env)).status, 403);
+  const response = await worker.fetch(makeRequest({ query: "coordinator", province: "ZZ" }), env);
+  assert.equal(response.status, 400);
+});
+
 test("Gemini proxy validates the returned schema", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -78,6 +87,26 @@ test("Gemini proxy retries a temporary model overload", async () => {
     const response = await worker.fetch(post({ provider: "gemini", apiKey: "synthetic-key", model: "gemini-3.8-flash", prompt: "Hello" }), env);
     assert.equal(response.status, 200);
     assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Gemini overload message applies to any AI action", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ error: { message: "high demand" } }, { status: 503 });
+  };
+  try {
+    const response = await worker.fetch(post({ provider: "gemini", apiKey: "synthetic-key", model: "gemini-3.8-flash", prompt: "Suggest roles from confirmed experience" }), env);
+    assert.equal(response.status, 503);
+    assert.equal(calls, 3);
+    const { error } = await response.json();
+    assert.match(error, /Gemini is busy/);
+    assert.match(error, /No result was created/);
+    assert.doesNotMatch(error, /document|extracted/i);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -94,6 +94,17 @@ button { touch-action: manipulation; }
 .role-ideas li { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: #f8faf7; }
 .role-ideas p { margin: .25rem 0; font-size: .85rem; }
 .role-ideas small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.scan-role-button { margin-top: .7rem; min-height: 40px; font-size: .78rem; }
+.scan-summary { margin: 1.25rem 0 .8rem; color: #35413b; font-size: .86rem; }
+.scan-results { display: grid; gap: .75rem; }
+.scan-card { padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: #f8faf7; }
+.scan-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.scan-card h4 { margin: .15rem 0; font-size: 1.04rem; }
+.scan-source { margin: 0; color: var(--green); font-size: .72rem; font-weight: 700; }
+.scan-company, .scan-terms { margin: .25rem 0; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.scan-priority { flex: 0 0 auto; padding: .3rem .55rem; border-radius: 999px; background: var(--green-soft); color: var(--green-dark); font-size: .7rem; font-weight: 700; }
+.scan-card-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .85rem; }
+.scan-card-actions .button { min-height: 42px; padding: .55rem .8rem; font-size: .78rem; text-decoration: none; }
 .section-heading { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1.6rem; }
 .section-heading h3, .section-heading p { margin: 0; }
 .section-heading p { color: var(--muted); font-size: .83rem; }
@@ -205,6 +216,7 @@ dialog::backdrop { background: rgba(20,29,25,.55); backdrop-filter: blur(4px); }
 }
 
 @media (max-width: 560px) {
+  .scan-card-head { flex-direction: column; gap: .4rem; }
   .topbar { min-height: 64px; padding: 10px 16px; }
   .privacy-pill { display: none; }
   .hero { min-height: calc(100dvh - 64px); padding-inline: 18px; }

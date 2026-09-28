@@ -1,4 +1,5 @@
 // Hosted Jobist: same-origin static assets and an ephemeral Gemini adapter.
+import { getJobBankDetail, scanJobs } from "./job-search.mjs";
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MODEL_PATTERN = /^gemini-[a-z0-9.-]+$/;
@@ -98,7 +99,7 @@ async function handleAi(request) {
       if (response.status !== 503 || attempt === 2) break;
       await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt + Math.random() * 250));
     }
-    if (response.status === 503) return jsonResponse(503, { error: "Gemini is busy right now. Try again shortly, or choose another Gemini model in Connect AI. Your document was not extracted." });
+    if (response.status === 503) return jsonResponse(503, { error: "Gemini is busy right now. Try again shortly, or choose another Gemini model in Connect AI. No result was created for this action." });
     let result;
     try { result = JSON.parse(raw); } catch { return jsonResponse(502, { error: "The AI provider returned an invalid response" }); }
     if (!response.ok) {
@@ -116,10 +117,28 @@ async function handleAi(request) {
   }
 }
 
+async function handleJobSearch(request, detail = false) {
+  const origin = request.headers.get("Origin");
+  if (origin && origin !== new URL(request.url).origin) return jsonResponse(403, { error: "Cross-origin requests are not allowed" });
+  let body;
+  try { body = JSON.parse(await readLimitedText(request.body, 8_192)); }
+  catch { return jsonResponse(400, { error: "Invalid job search request" }); }
+  try {
+    const result = detail ? await getJobBankDetail(body?.id, body?.language) : await scanJobs(body);
+    return jsonResponse(200, result);
+  } catch (error) {
+    return jsonResponse(error instanceof RangeError ? 400 : 502, { error: error.message || "Job search failed" });
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/local-models" && request.method === "GET") return jsonResponse(200, { available: false, models: [] });
+    if (["/api/jobs/scan", "/api/jobs/detail"].includes(url.pathname)) {
+      if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
+      return handleJobSearch(request, url.pathname.endsWith("/detail"));
+    }
     if (["/api/ai", "/api/gemini"].includes(url.pathname)) {
       if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
       return handleAi(request);

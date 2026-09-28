@@ -21,6 +21,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from job_search import get_job_bank_detail, scan_jobs
+
 
 HOST = "127.0.0.1"
 PORT = 8080
@@ -151,7 +153,7 @@ class JobistHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
-        if self.path not in {"/api/ai", "/api/gemini"}:
+        if self.path not in {"/api/ai", "/api/gemini", "/api/jobs/scan", "/api/jobs/detail"}:
             self._json_response(HTTPStatus.NOT_FOUND, {"error": "Not found"})
             return
 
@@ -178,6 +180,19 @@ class JobistHandler(SimpleHTTPRequestHandler):
 
         if not isinstance(body, dict):
             self._json_response(HTTPStatus.BAD_REQUEST, {"error": "Invalid request"})
+            return
+        if self.path in {"/api/jobs/scan", "/api/jobs/detail"}:
+            if size > 8_192:
+                self._json_response(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Job search request is too large"})
+                return
+            try:
+                result = (scan_jobs(body) if self.path.endswith("/scan") else
+                          get_job_bank_detail(body.get("id"), body.get("language")))
+                self._json_response(HTTPStatus.OK, result)
+            except ValueError as error:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except Exception:
+                self._json_response(HTTPStatus.BAD_GATEWAY, {"error": "Job source is unavailable right now. Try again shortly."})
             return
         provider = body.get("provider", "gemini" if self.path == "/api/gemini" else None)
         api_key = body.get("apiKey")
@@ -269,7 +284,7 @@ class JobistHandler(SimpleHTTPRequestHandler):
             self._json_response(HTTPStatus.OK, {"output": output, "provider": "gemini", "model": model})
         except urllib.error.HTTPError as error:
             if error.code == 503:
-                self._json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Gemini is busy right now. Try again shortly, or choose another Gemini model in Connect AI. Your document was not extracted."})
+                self._json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Gemini is busy right now. Try again shortly, or choose another Gemini model in Connect AI. No result was created for this action."})
                 return
             try:
                 detail = json.loads(error.read()).get("error", {}).get("message", "Provider request failed")
