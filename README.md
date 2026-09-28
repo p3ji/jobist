@@ -19,8 +19,15 @@ The intended GUI journey follows the source project's three stages:
 | Stage | Available now | Still to build |
 | --- | --- | --- |
 | Profile | Guided form and one document at a time for AI fact extraction; the user edits and confirms the result. | Combine multiple sources such as a CV, LinkedIn export, diplomas, references, and past applications; paste a CV as a dedicated import path; guided profile interview; source records for each fact. |
-| Find jobs | Paste a job description and enter its company, role, and location. A posting URL can be saved as a reference. | Search job boards, deduplicate listings, rank matches, and open a selected result in the application flow. The current URL field does not fetch a posting. |
+| Find jobs | Get exploratory role-title ideas from confirmed experience, then paste a job description and enter its company, role, and location. A posting URL can be saved as a reference. | Search job boards, deduplicate listings, rank matches, and open a selected result in the application flow. The current URL field does not fetch a posting. |
 | Prepare application | AI fit report with gates, tailored résumé and cover-letter drafts, a separate review pass, editable output, print/save as PDF, and a local tracker. | Fuller document formatting and export checks comparable to the source framework. Sending or submitting remains a user action outside Jobist. |
+
+Target roles and career goals are optional. You can confirm your experience
+without knowing your next title, then paste a job posting to explore its fit.
+When both fields are blank, Jobist shows career direction as not assessed and
+calculates the overall score from skills, experience, and work style only. The
+job step can suggest role titles to explore, with each idea linked to confirmed
+experience or skills. You still need a real job posting for a fit report.
 
 This is the first working slice of that journey. It does not yet reproduce the
 source project's `/scrape` job search or all three `/setup` intake paths.

@@ -88,6 +88,12 @@ button { touch-action: manipulation; }
 .save-state { flex: 0 0 auto; padding: .45rem .65rem; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: .72rem; }
 
 .form-section { margin-bottom: 1rem; padding: clamp(1.25rem, 3vw, 2rem); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.role-explorer > h3 { margin: 0; }
+.role-explorer > p { color: var(--muted); font-size: .85rem; }
+.role-ideas { display: grid; gap: .75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.role-ideas li { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: #f8faf7; }
+.role-ideas p { margin: .25rem 0; font-size: .85rem; }
+.role-ideas small { display: block; color: var(--muted); overflow-wrap: anywhere; }
 .section-heading { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1.6rem; }
 .section-heading h3, .section-heading p { margin: 0; }
 .section-heading p { color: var(--muted); font-size: .83rem; }
@@ -126,6 +132,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .score-card { padding: 1.1rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
 .score-card p { margin: 0; color: var(--muted); font-size: .74rem; }
 .score-card strong { display: block; margin: .4rem 0; font-size: 1.8rem; }
+.score-card strong.not-assessed { font-size: 1.1rem; color: var(--muted); }
 .score-bar { height: 5px; overflow: hidden; border-radius: 99px; background: #e6e8e3; }
 .score-bar span { display: block; height: 100%; border-radius: inherit; background: var(--green); }
 .insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
