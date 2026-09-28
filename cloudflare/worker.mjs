@@ -55,6 +55,21 @@ function matchesSchema(value, schema, depth = 0) {
   return true;
 }
 
+async function resolveSecret(env, ...keys) {
+  for (const key of keys) {
+    const item = env?.[key];
+    if (!item) continue;
+    if (typeof item === "string" && item.trim()) return item.trim();
+    if (typeof item?.get === "function") {
+      try {
+        const val = await item.get();
+        if (typeof val === "string" && val.trim()) return val.trim();
+      } catch {}
+    }
+  }
+  return "";
+}
+
 async function handleAi(request, env) {
   const origin = request.headers.get("Origin");
   if (origin && origin !== new URL(request.url).origin) return jsonResponse(403, { error: "Cross-origin requests are not allowed" });
@@ -71,7 +86,8 @@ async function handleAi(request, env) {
   const provider = body.provider || (new URL(request.url).pathname === "/api/gemini" ? "gemini" : null);
   if (provider === "local") return jsonResponse(400, { error: "Local AI is available when Jobist runs on the same computer as LM Studio" });
   if (provider !== "gemini") return jsonResponse(400, { error: "Choose an AI provider" });
-  const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim().length >= 10) ? body.apiKey.trim() : (env?.GEMINI_API_KEY || "").trim();
+  const clientKey = (typeof body.apiKey === "string" && body.apiKey.trim().length >= 10) ? body.apiKey.trim() : "";
+  const apiKey = clientKey || await resolveSecret(env, "GEMINI_API_KEY", "GOOGLE_API_KEY");
   const model = (typeof body.model === "string" && body.model.trim()) ? body.model.trim() : "gemini-3.5-flash-lite";
   const { prompt, schema, file } = body;
   if (!apiKey || apiKey.length < 10) return jsonResponse(400, { error: "A valid Gemini API key is required" });
@@ -136,7 +152,7 @@ async function handleJobSearch(request, detail = false) {
 async function handleJobRerank(request, env) {
   const origin = request.headers.get("Origin");
   if (origin && origin !== new URL(request.url).origin) return jsonResponse(403, { error: "Cross-origin requests are not allowed" });
-  const apiKey = (env?.COHERE_API_KEY || "").trim();
+  const apiKey = await resolveSecret(env, "COHERE_API_KEY");
   if (!apiKey) return jsonResponse(200, { available: false, results: [] });
 
   let body;
@@ -178,10 +194,13 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/api/local-models" && request.method === "GET") return jsonResponse(200, { available: false, models: [] });
     if (url.pathname === "/api/ai/config" && request.method === "GET") {
+      const defaultGemini = await resolveSecret(env, "GEMINI_API_KEY", "GOOGLE_API_KEY");
+      const defaultCohere = await resolveSecret(env, "COHERE_API_KEY");
       return jsonResponse(200, {
-        defaultGeminiAvailable: Boolean(env?.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length >= 10),
-        defaultCohereAvailable: Boolean(env?.COHERE_API_KEY && env.COHERE_API_KEY.trim().length >= 10),
+        defaultGeminiAvailable: Boolean(defaultGemini && defaultGemini.length >= 10),
+        defaultCohereAvailable: Boolean(defaultCohere && defaultCohere.length >= 10),
         defaultModel: "gemini-3.5-flash-lite",
+        envKeys: Object.keys(env || {}).filter(k => k !== "ASSETS"),
       });
     }
     if (["/api/jobs/scan", "/api/jobs/detail"].includes(url.pathname)) {

@@ -144,6 +144,18 @@ test("/api/ai/config returns available default secrets and model", async () => {
   const dataEmpty = await responseEmpty.json();
   assert.equal(dataEmpty.defaultGeminiAvailable, false);
   assert.equal(dataEmpty.defaultCohereAvailable, false);
+
+  // Test Secrets Store async binding object { get: async () => string }
+  const envWithSecretsStore = {
+    ...env,
+    GEMINI_API_KEY: { get: async () => "secret-store-gemini-key" },
+    COHERE_API_KEY: { get: async () => "secret-store-cohere-key" },
+  };
+  const responseStore = await worker.fetch(new Request(`${site}/api/ai/config`), envWithSecretsStore);
+  assert.equal(responseStore.status, 200);
+  const dataStore = await responseStore.json();
+  assert.equal(dataStore.defaultGeminiAvailable, true);
+  assert.equal(dataStore.defaultCohereAvailable, true);
 });
 
 test("/api/jobs/rerank returns available false when no key is set", async () => {
