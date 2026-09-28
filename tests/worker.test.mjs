@@ -44,3 +44,23 @@ test("Gemini proxy validates the returned schema", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Gemini proxy forwards a PDF as inline document data", async () => {
+  const originalFetch = globalThis.fetch;
+  let upstreamBody;
+  globalThis.fetch = async (_url, options) => {
+    upstreamBody = JSON.parse(options.body);
+    return Response.json({ candidates: [{ content: { parts: [{ text: '{"name":"Taylor"}' }] } }] });
+  };
+  try {
+    const response = await worker.fetch(post({
+      provider: "gemini", apiKey: "synthetic-key", model: "gemini-3.8-flash",
+      prompt: "Extract confirmed facts", schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      file: { mimeType: "application/pdf", data: "JVBERi0xLjQ=" },
+    }), env);
+    assert.equal(response.status, 200);
+    assert.deepEqual(upstreamBody.contents[0].parts[1], { inlineData: { mimeType: "application/pdf", data: "JVBERi0xLjQ=" } });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
