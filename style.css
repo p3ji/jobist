@@ -88,8 +88,14 @@ button { touch-action: manipulation; }
 .save-state { flex: 0 0 auto; padding: .45rem .65rem; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: .72rem; }
 
 .form-section { margin-bottom: 1rem; padding: clamp(1.25rem, 3vw, 2rem); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
-.role-explorer > h3 { margin: 0; }
-.role-explorer > p { color: var(--muted); font-size: .85rem; }
+.scan-section h3, .scan-output h3 { margin: 0 0 .55rem; }
+.scan-section > p { max-width: 70ch; color: var(--muted); font-size: .85rem; }
+.scan-section .form-actions { justify-content: flex-start; }
+.scan-output .scan-results { margin-top: 1rem; }
+.role-helper { margin: 1.1rem 0 1.5rem; padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: #f8faf7; }
+.role-helper summary { color: var(--green-dark); font-weight: 700; cursor: pointer; }
+.role-helper summary:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
+.role-helper > p { margin: .7rem 0; color: var(--muted); font-size: .82rem; }
 .role-ideas { display: grid; gap: .75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
 .role-ideas li { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: #f8faf7; }
 .role-ideas p { margin: .25rem 0; font-size: .85rem; }
@@ -103,6 +109,9 @@ button { touch-action: manipulation; }
 .scan-source { margin: 0; color: var(--green); font-size: .72rem; font-weight: 700; }
 .scan-company, .scan-terms { margin: .25rem 0; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
 .scan-priority { flex: 0 0 auto; padding: .3rem .55rem; border-radius: 999px; background: var(--green-soft); color: var(--green-dark); font-size: .7rem; font-weight: 700; }
+.scan-priority.fit-medium { background: var(--orange-soft); color: #814524; }
+.scan-priority.fit-low { background: #fbeceb; color: #812121; }
+.scan-priority.fit-unknown { background: #e9ecea; color: #46524c; }
 .scan-card-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .85rem; }
 .scan-card-actions .button { min-height: 42px; padding: .55rem .8rem; font-size: .78rem; text-decoration: none; }
 .section-heading { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1.6rem; }
