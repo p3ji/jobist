@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../cloudflare/worker.mjs";
+import { verifyStripeSignature } from "../cloudflare/monetization.mjs";
 
 const site = "https://jobist.peji.ca";
 const env = { ASSETS: { fetch: async () => new Response("<!doctype html><title>Jobist</title>", { headers: { "Content-Type": "text/html" } }) } };
@@ -139,6 +140,7 @@ test("/api/ai/config returns available default secrets and model", async () => {
   assert.equal(data.defaultGeminiAvailable, true);
   assert.equal(data.defaultCohereAvailable, true);
   assert.equal(data.defaultModel, "gemini-2.5-flash");
+  assert.equal("envKeys" in data, false);
 
   const responseEmpty = await worker.fetch(new Request(`${site}/api/ai/config`), env);
   const dataEmpty = await responseEmpty.json();
@@ -156,6 +158,67 @@ test("/api/ai/config returns available default secrets and model", async () => {
   const dataStore = await responseStore.json();
   assert.equal(dataStore.defaultGeminiAvailable, true);
   assert.equal(dataStore.defaultCohereAvailable, true);
+});
+
+test("personal Qwen key uses only the selected regional endpoint and validates JSON", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return Response.json({ choices: [{ message: { content: '{"result":"ok"}' } }] });
+  };
+  try {
+    const response = await worker.fetch(post({ provider: "qwen", apiKey: "synthetic-qwen-key", region: "singapore", model: "qwen3.8-27b", prompt: "Return JSON", schema: { type: "object", required: ["result"], properties: { result: { type: "string" } } } }), env);
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).output, { result: "ok" });
+    assert.equal(calls[0].url, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions");
+    assert.equal(calls[0].options.redirect, "manual");
+    assert.equal(calls[0].options.headers.Authorization, "Bearer synthetic-qwen-key");
+    assert.equal((await worker.fetch(post({ provider: "qwen", apiKey: "synthetic-qwen-key", region: "https://evil.example", model: "qwen3.8-27b", prompt: "x" }), env)).status, 400);
+    assert.equal(calls.length, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Qwen failures never fall back to Jobist's key", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return Response.json({ choices: [{ message: { content: "not json" } }] }); };
+  try {
+    const gated = { ...env, GEMINI_API_KEY: "worker-secret-gemini-key" };
+    const input = { provider: "qwen", apiKey: "synthetic-qwen-key", region: "beijing", model: "qwen3.8-27b", prompt: "Return JSON", schema: { type: "object", required: ["ok"], properties: { ok: { type: "boolean" } } } };
+    const result = await worker.fetch(post(input), gated);
+    assert.equal(result.status, 502);
+    assert.match((await result.json()).error, /invalid JSON/);
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("enabled monetization blocks anonymous server-key and portal bypasses", async () => {
+  const gated = { ...env, MONETIZATION_ENFORCED: "true", GEMINI_API_KEY: "worker-secret-gemini-key", COHERE_API_KEY: "worker-secret-cohere-key" };
+  const config = await (await worker.fetch(new Request(`${site}/api/ai/config`), gated)).json();
+  assert.equal(config.defaultGeminiAvailable, false);
+  assert.equal((await worker.fetch(post({ provider: "gemini", prompt: "x" }), gated)).status, 400);
+  for (const path of ["/api/jobs/scan", "/api/jobs/detail", "/api/jobs/rerank"]) {
+    const response = await worker.fetch(new Request(`${site}${path}`, { method: "POST", headers: { Origin: site }, body: "{}" }), gated);
+    assert.equal(response.status, 503);
+  }
+});
+
+test("test Checkout remains unavailable until billing is explicitly enabled", async () => {
+  const response = await worker.fetch(new Request(`${site}/api/checkout/session`, { method: "POST", headers: { Origin: site } }), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "BILLING_DISABLED");
+});
+
+test("Stripe webhook signatures reject tampering and stale events", async () => {
+  const body = '{"id":"evt_test"}';
+  const timestamp = 1_800_000_000;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("whsec_test"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`)))].map(value => value.toString(16).padStart(2, "0")).join("");
+  const header = `t=${timestamp},v1=${signature}`;
+  assert.equal(await verifyStripeSignature(body, header, "whsec_test", timestamp), true);
+  assert.equal(await verifyStripeSignature(body + " ", header, "whsec_test", timestamp), false);
+  assert.equal(await verifyStripeSignature(body, header, "whsec_test", timestamp + 301), false);
 });
 
 test("/api/jobs/rerank returns available false when no key is set", async () => {
@@ -204,4 +267,3 @@ test("client bundle scripts parse cleanly without syntax errors", async () => {
     new Function(distAppSrc);
   }, "dist/app.js must parse cleanly");
 });
-

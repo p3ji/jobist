@@ -111,6 +111,7 @@
     }
     if (aiSession.provider === "local" && aiSession.model) return true;
     if (aiSession.provider === "gemini" && (aiSession.apiKey || aiSession.isDefaultKey)) return true;
+    if (aiSession.provider === "qwen" && aiSession.apiKey) return true;
     $("#providerDialog").showModal();
     updateProviderFields();
     $("#providerChoice").focus();
@@ -148,7 +149,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: selected.provider,
-          ...(selected.provider === "gemini" && selected.apiKey ? { apiKey: selected.apiKey } : {}),
+          ...(["gemini", "qwen"].includes(selected.provider) && selected.apiKey ? { apiKey: selected.apiKey } : {}),
+          ...(selected.provider === "qwen" ? { region: selected.region } : {}),
           model: selected.model || "gemini-2.5-flash",
           prompt,
           schema,
@@ -461,9 +463,26 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     const provinceCodes = { alberta: "AB", "british columbia": "BC", manitoba: "MB", "new brunswick": "NB", newfoundland: "NL", "nova scotia": "NS", ontario: "ON", "prince edward island": "PE", quebec: "QC", québec: "QC", saskatchewan: "SK", yukon: "YT" };
     const code = location.match(/\b(AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT)\b/i)?.[1]?.toUpperCase()
       || Object.entries(provinceCodes).find(([name]) => location.toLowerCase().includes(name))?.[1] || "";
-    $("#scanProvince").value = state.scan?.province ?? code;
-    if ($("#targetedProvince")) $("#targetedProvince").value = state.scan?.province ?? code;
-    $("#scanLanguage").value = state.scan?.language || (/\bfrench\b|\bfran[çc]ais\b/i.test(state.profile.languages || "") ? "both" : "en");
+
+    // Extract potential city name from "City, Province" or "City, Province, Country"
+    const locParts = location.split(",").map(part => part.trim()).filter(Boolean);
+    let cityCandidate = "";
+    if (locParts.length >= 2) {
+      cityCandidate = locParts[0];
+    } else if (locParts.length === 1 && !provinceCodes[locParts[0].toLowerCase()] && !/^(AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT|Canada)$/i.test(locParts[0])) {
+      cityCandidate = locParts[0];
+    }
+
+    const provinceVal = state.scan?.province ?? code;
+    const cityVal = state.scan?.city ?? cityCandidate;
+    const langVal = state.scan?.language || (/\bfrench\b|\bfran[çc]ais\b/i.test(state.profile.languages || "") ? "both" : "en");
+
+    $("#scanProvince").value = provinceVal;
+    if ($("#targetedProvince")) $("#targetedProvince").value = provinceVal;
+    if ($("#scanCity")) $("#scanCity").value = cityVal;
+    if ($("#targetedCity")) $("#targetedCity").value = cityVal;
+    $("#scanLanguage").value = langVal;
+    if ($("#targetedLanguage")) $("#targetedLanguage").value = langVal;
     $("#scanProvince").dataset.initialized = "true";
   }
 
@@ -618,14 +637,19 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
   async function searchAllDirections(directions, mode) {
     const profile = state.profile;
     const province = mode === "manual" ? ($("#targetedProvince")?.value || $("#scanProvince").value) : $("#scanProvince").value;
-    const language = $("#scanLanguage").value;
+    const city = mode === "manual" ? ($("#targetedCity")?.value || $("#scanCity")?.value || "").trim() : ($("#scanCity")?.value || "").trim();
+    const language = mode === "manual" ? ($("#targetedLanguage")?.value || $("#scanLanguage").value) : $("#scanLanguage").value;
     const jobs = [];
     const sources = [];
     const seen = new Set();
     for (const [directionIndex, direction] of directions.entries()) {
       $("#scanStatusText").textContent = `Searching ${directionIndex + 1} of ${directions.length}: ${direction.term}…`;
       try {
-        const response = await fetch("/api/jobs/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: direction.term, province, language }) });
+        const response = await fetch("/api/jobs/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: direction.term, province, city, language }),
+        });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "The source search failed.");
         if (!Array.isArray(result.jobs) || !Array.isArray(result.sources)) throw new Error("A job source returned an invalid result.");
@@ -648,7 +672,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       if (state.profile !== profile) throw new Error("Your profile changed during the scan. Start again with the current profile.");
     }
     if (!sources.some(source => source.ok)) throw new Error("Job sources are unavailable right now. Try again shortly.");
-    return { mode, query: mode === "manual" ? directions[0].term : "", directions, province, language,
+    return { mode, query: mode === "manual" ? directions[0].term : "", directions, province, city, language,
       jobs, sources, searchedAt: new Date().toISOString() };
   }
 
@@ -1120,7 +1144,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       container.innerHTML = `<div class="tracker-empty"><h3>No saved applications yet</h3><p>Create an application, then save it here to track what happens next.</p></div>`;
       return;
     }
-    container.innerHTML = state.applications.map(app => `<article class="tracker-card"><div><h3>${escapeHtml(app.role)} · ${escapeHtml(app.company)}</h3><p>Fit ${app.score}/100 · Saved ${new Date(app.savedAt).toLocaleDateString()}${app.model ? ` · ${escapeHtml(app.provider === "local" ? "Local AI" : app.provider === "gemini" ? "Gemini" : "AI")} (${escapeHtml(app.model)})` : ""}</p></div><label>Status<span class="sr-only"> for ${escapeHtml(app.role)}</span><select data-application-id="${app.id}"><option${app.status === "Drafting" ? " selected" : ""}>Drafting</option><option${app.status === "Applied" ? " selected" : ""}>Applied</option><option${app.status === "Interview" ? " selected" : ""}>Interview</option><option${app.status === "Offer" ? " selected" : ""}>Offer</option><option${app.status === "Closed" ? " selected" : ""}>Closed</option></select></label></article>`).join("");
+    container.innerHTML = state.applications.map(app => `<article class="tracker-card"><div><h3>${escapeHtml(app.role)} · ${escapeHtml(app.company)}</h3><p>Fit ${app.score}/100 · Saved ${new Date(app.savedAt).toLocaleDateString()}${app.model ? ` · ${escapeHtml(app.provider === "local" ? "Local AI" : app.provider === "gemini" ? "Gemini" : app.provider === "qwen" ? "Qwen" : "AI")} (${escapeHtml(app.model)})` : ""}</p></div><label>Status<span class="sr-only"> for ${escapeHtml(app.role)}</span><select data-application-id="${app.id}"><option${app.status === "Drafting" ? " selected" : ""}>Drafting</option><option${app.status === "Applied" ? " selected" : ""}>Applied</option><option${app.status === "Interview" ? " selected" : ""}>Interview</option><option${app.status === "Offer" ? " selected" : ""}>Offer</option><option${app.status === "Closed" ? " selected" : ""}>Closed</option></select></label></article>`).join("");
   }
 
   function download(filename, content, type) {
@@ -1168,8 +1192,12 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     pendingJobReview = false;
     $("#scanQuery").value = "";
     $("#scanProvince").value = "";
+    if ($("#scanCity")) $("#scanCity").value = "";
     delete $("#scanProvince").dataset.initialized;
     $("#scanLanguage").value = "en";
+    if ($("#targetedProvince")) $("#targetedProvince").value = "";
+    if ($("#targetedCity")) $("#targetedCity").value = "";
+    if ($("#targetedLanguage")) $("#targetedLanguage").value = "en";
     state.evaluation = null;
     state.drafts = null;
     saveState("Profile confirmed");
@@ -1248,6 +1276,18 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
   });
   $("#targetedProvince")?.addEventListener("change", () => {
     if ($("#scanProvince")) $("#scanProvince").value = $("#targetedProvince").value;
+  });
+  $("#scanCity")?.addEventListener("input", () => {
+    if ($("#targetedCity")) $("#targetedCity").value = $("#scanCity").value;
+  });
+  $("#targetedCity")?.addEventListener("input", () => {
+    if ($("#scanCity")) $("#scanCity").value = $("#targetedCity").value;
+  });
+  $("#scanLanguage")?.addEventListener("change", () => {
+    if ($("#targetedLanguage")) $("#targetedLanguage").value = $("#scanLanguage").value;
+  });
+  $("#targetedLanguage")?.addEventListener("change", () => {
+    if ($("#scanLanguage")) $("#scanLanguage").value = $("#targetedLanguage").value;
   });
 
   $("#discoverButton").addEventListener("click", event => beginScan("profile", event.currentTarget));
@@ -1564,11 +1604,12 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
 
   const providerDialog = $("#providerDialog");
   const localAiSupported = ["localhost", "127.0.0.1"].includes(location.hostname);
+  $("#providerChoice option[value=qwen]").disabled = localAiSupported;
   if (!localAiSupported) {
     $("#providerChoice").value = "gemini";
     $("#localFields").classList.add("is-hidden");
     $("#geminiFields").classList.remove("is-hidden");
-    $("#providerIntro").textContent = "This hosted site connects to Gemini. Choose Local AI to see how to use a model on your computer. Connecting alone does not start an analysis; choose a profile or job action next.";
+    $("#providerIntro").textContent = "Choose Jobist's Gemini connection, your own Gemini or Qwen key, or see how to run a local model. Connecting alone does not start an analysis.";
     $("#uploadHelp").textContent = "Choose up to 12 PDF, Word, TXT, MD, TEX, or CSV files, 10 MB each. Select Read documents with AI to fill the reviewable profile below. LaTeX included files are not loaded.";
   }
   async function refreshLocalModels() {
@@ -1627,6 +1668,11 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       const response = await fetch("/api/ai/config");
       if (response.ok) {
         serverAiConfig = await response.json();
+        if (serverAiConfig.billingEnabled) {
+          $("#accountButton").classList.remove("is-hidden");
+          $("#passOffer").classList.toggle("is-hidden", !serverAiConfig.checkoutTestEnabled);
+          $("#buyPassButton").classList.toggle("is-hidden", !serverAiConfig.checkoutTestEnabled);
+        }
         if (serverAiConfig.defaultGeminiAvailable && !aiSession.provider) {
           aiSession.provider = "gemini";
           aiSession.model = (serverAiConfig.defaultModel && serverAiConfig.defaultModel !== "gemini-3.5-flash-lite")
@@ -1639,10 +1685,126 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     } catch { /* Server offline or unconfigured */ }
   }
 
+  const accountDialog = $("#accountDialog");
+  let turnstileToken = "";
+  let turnstileWidget = null;
+  let turnstileLoader = null;
+  const accountStatus = message => { $("#accountStatus").textContent = message; };
+  async function accountPost(path, body = {}) {
+    const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Account request failed.");
+    return data;
+  }
+  async function loadTurnstile() {
+    if (!serverAiConfig.turnstileSiteKey || turnstileWidget !== null) return;
+    if (!turnstileLoader) turnstileLoader = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("The sign-in security check could not load."));
+      document.head.appendChild(script);
+    });
+    await turnstileLoader;
+    turnstileWidget = window.turnstile.render("#accountTurnstile", {
+      sitekey: serverAiConfig.turnstileSiteKey,
+      callback: token => { turnstileToken = token; },
+      "expired-callback": () => { turnstileToken = ""; },
+      "error-callback": () => { turnstileToken = ""; accountStatus("Security check failed. Please retry it."); },
+    });
+  }
+  async function refreshAccount() {
+    const response = await fetch("/api/me/usage");
+    if (response.status === 401) {
+      $("#accountSignedOut").classList.remove("is-hidden");
+      $("#accountSignedIn").classList.add("is-hidden");
+      try { await loadTurnstile(); } catch (error) { setActionError("#accountError", error.message); }
+      return;
+    }
+    if (!response.ok) throw new Error("Account balances are temporarily unavailable.");
+    const data = await response.json();
+    $("#accountSignedOut").classList.add("is-hidden");
+    $("#accountSignedIn").classList.remove("is-hidden");
+    const free = data.free?.[0] || { scans_remaining: 0, packets_remaining: 0 };
+    const passes = data.passes || [];
+    const passScans = passes.reduce((sum, item) => sum + item.scans_remaining, 0);
+    const passPackets = passes.reduce((sum, item) => sum + item.packets_remaining, 0);
+    const nextExpiry = passes[0]?.expires_at ? new Date(passes[0].expires_at * 1000).toLocaleString() : "";
+    $("#accountBalances").textContent = `Free: ${free.scans_remaining} scans and ${free.packets_remaining} packets. Active passes: ${passScans} scans and ${passPackets} packets.${nextExpiry ? ` Next expiry: ${nextExpiry}.` : ""}`;
+  }
+  async function openAccount() {
+    setActionError("#accountError");
+    if (!accountDialog.open) accountDialog.showModal();
+    try { await refreshAccount(); } catch (error) { setActionError("#accountError", error.message); }
+  }
+  $("#accountButton").addEventListener("click", openAccount);
+  $(".dialog-close", accountDialog).addEventListener("click", () => accountDialog.close());
+  $("#accountEmailForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    setActionError("#accountError");
+    if (!turnstileToken) { setActionError("#accountError", "Complete the sign-in security check first."); return; }
+    try {
+      await accountPost("/api/auth/request-code", { email: $("#accountEmail").value, turnstileToken });
+      $("#accountCodeForm").classList.remove("is-hidden");
+      accountStatus("A six-digit code was sent if this address can receive Jobist email. It expires in 10 minutes.");
+      $("#accountCode").focus();
+      turnstileToken = "";
+      if (turnstileWidget !== null) window.turnstile.reset(turnstileWidget);
+    } catch (error) { setActionError("#accountError", error.message); }
+  });
+  $("#accountCodeForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    setActionError("#accountError");
+    try {
+      await accountPost("/api/auth/verify-code", { email: $("#accountEmail").value, code: $("#accountCode").value });
+      $("#accountCode").value = "";
+      await refreshAccount();
+      accountStatus("Signed in. Your workspace remains in this browser.");
+    } catch (error) { setActionError("#accountError", error.message); }
+  });
+  $("#signOutButton").addEventListener("click", async () => {
+    try { await accountPost("/api/auth/logout"); await refreshAccount(); accountStatus("Signed out."); }
+    catch (error) { setActionError("#accountError", error.message); }
+  });
+  $("#buyPassButton").addEventListener("click", async () => {
+    const button = $("#buyPassButton");
+    button.disabled = true;
+    setActionError("#accountError");
+    try {
+      const { url } = await accountPost("/api/checkout/session");
+      if (!/^https:\/\/checkout\.stripe\.com\//.test(url)) throw new Error("Checkout returned an unexpected destination.");
+      location.assign(url);
+    } catch (error) { setActionError("#accountError", error.message); button.disabled = false; }
+  });
+  async function checkCheckoutReturn() {
+    const params = new URLSearchParams(location.search);
+    if (!serverAiConfig.billingEnabled || !params.has("checkout")) return;
+    await openAccount();
+    if (params.get("checkout") === "canceled") { accountStatus("Checkout was canceled. No pass was added."); return; }
+    const sessionId = params.get("session_id") || "";
+    if (!/^cs_test_[A-Za-z0-9_]{8,200}$/.test(sessionId)) { accountStatus("Checkout returned without a valid session reference."); return; }
+    accountStatus("Payment processing. Your pass will appear after Stripe confirms payment.");
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      attempts++;
+      try {
+        const response = await fetch(`/api/checkout/status?session_id=${encodeURIComponent(sessionId)}`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.status === "paid") { clearInterval(timer); await refreshAccount(); accountStatus("Payment confirmed. Your Jobist Pass is active."); }
+          else if (["failed", "refunded"].includes(result.status)) { clearInterval(timer); accountStatus("Payment did not activate a pass. Please contact support before trying again."); }
+        }
+      } catch { /* Keep a pending state; no balance is inferred from the return URL. */ }
+      if (attempts >= 15) { clearInterval(timer); accountStatus("Payment is still processing. Reopen Account later to check your balance."); }
+    }, 2000);
+  }
+
   function updateProviderFields() {
-    const local = $("#providerChoice").value === "local";
+    const choice = $("#providerChoice").value;
+    const local = choice === "local";
     $("#localFields").classList.toggle("is-hidden", !local);
-    $("#geminiFields").classList.toggle("is-hidden", local);
+    $("#geminiFields").classList.toggle("is-hidden", choice !== "gemini");
+    $("#qwenFields").classList.toggle("is-hidden", choice !== "qwen");
     $("#localSetup").classList.toggle("is-hidden", !localAiSupported);
     $("#hostedLocalSetup").classList.toggle("is-hidden", localAiSupported);
     $("#providerSubmit").classList.toggle("is-hidden", local && !localAiSupported);
@@ -1655,11 +1817,11 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     const connected = Boolean(aiSession.provider);
     $("#providerButton").classList.toggle("is-connected", connected);
     $("#providerLabel").textContent = connected
-      ? (aiSession.provider === "local" ? "Local AI active" : aiSession.isDefaultKey ? "Free Tier active" : "Gemini connected")
+      ? (aiSession.provider === "local" ? "Local AI active" : aiSession.provider === "qwen" ? "Qwen connected" : aiSession.isDefaultKey ? "Free Tier active" : "Gemini connected")
       : "Connect AI";
     $("#modeBanner").innerHTML = connected
-      ? `<strong>${aiSession.provider === "local" ? "Local AI active" : aiSession.isDefaultKey ? "Gemini Free Tier active" : "Gemini connected"}</strong><span>Document extraction, job matching, fit evaluation, and drafting use ${escapeHtml(aiSession.model)}.${aiSession.provider === "gemini" ? (aiSession.isDefaultKey ? " Default free-tier API active." : " Your key is not saved.") : " LM Studio must remain running on this computer."}</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Change model</button>`
-      : `<strong>AI not connected</strong><span>${localAiSupported ? "Choose Local AI or connect Gemini" : "Connect Gemini"} to extract facts, match jobs, and prepare applications.</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Connect</button>`;
+      ? `<strong>${aiSession.provider === "local" ? "Local AI active" : aiSession.provider === "qwen" ? "Qwen connected" : aiSession.isDefaultKey ? "Gemini Free Tier active" : "Gemini connected"}</strong><span>Job matching, fit evaluation, and drafting use ${escapeHtml(aiSession.model)}.${aiSession.provider === "gemini" ? (aiSession.isDefaultKey ? " Default free-tier API active." : " Your key is not saved.") : aiSession.provider === "qwen" ? " Your key stays in this tab; Alibaba Cloud may charge you. Paste document text for extraction." : " LM Studio must remain running on this computer."}</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Change model</button>`
+      : `<strong>AI not connected</strong><span>${localAiSupported ? "Choose Local AI or connect Gemini" : "Connect Gemini or Qwen"} to extract facts, match jobs, and prepare applications.</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Connect</button>`;
     $("#bannerSwitchAiBtn")?.addEventListener("click", () => {
       providerDialog.showModal();
       updateProviderFields();
@@ -1695,6 +1857,23 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
         submit.textContent = "Check connection and continue";
       }
       Object.assign(aiSession, selected);
+    } else if (provider === "qwen") {
+      if (localAiSupported) { setActionError("#providerError", "Use LM Studio for local models, or open the hosted site for Qwen."); return; }
+      const key = $("#qwenKeyInput").value.trim();
+      const region = $("#qwenRegionInput").value;
+      if (key.length < 10 || !$("#qwenConsent").checked) {
+        setActionError("#providerError", "Enter your Qwen key and confirm data sharing with Alibaba Cloud.");
+        $("#qwenKeyInput").focus();
+        return;
+      }
+      const selected = { provider: "qwen", apiKey: key, region, model: "qwen3.8-27b", isDefaultKey: false };
+      const submit = $("#providerSubmit");
+      submit.disabled = true;
+      submit.textContent = "Checking Qwen connection…";
+      try { await callAi({ prompt: "Reply with OK.", session: selected }); }
+      catch (error) { setActionError("#providerError", `Qwen connection failed: ${error.message || "Try again."}`); return; }
+      finally { submit.disabled = false; submit.textContent = "Check connection and continue"; }
+      Object.assign(aiSession, selected);
     } else {
       const enteredKey = $("#apiKeyInput").value.trim();
       const model = $("#modelInput").value || "gemini-2.5-flash";
@@ -1728,11 +1907,12 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       }
     }
     $("#apiKeyInput").value = "";
+    $("#qwenKeyInput").value = "";
     providerDialog.close();
     updateProviderUi();
     if (!$("#welcomeView").classList.contains("is-hidden")) showApp("profile");
     updateWorkflowMessage();
-    showToast(aiSession.provider === "local" ? `Local model ${aiSession.model} verified for this tab.` : aiSession.isDefaultKey ? "Gemini Free Tier active for this tab." : "Gemini verified for this tab. The key will be forgotten when you close or refresh it.");
+    showToast(aiSession.provider === "local" ? `Local model ${aiSession.model} verified for this tab.` : aiSession.provider === "qwen" ? "Qwen verified for this tab. Your key will be forgotten when you close or refresh it." : aiSession.isDefaultKey ? "Gemini Free Tier active for this tab." : "Gemini verified for this tab. The key will be forgotten when you close or refresh it.");
   });
 
   const helpDialog = $("#helpDialog");
@@ -1748,7 +1928,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     location.reload();
   });
 
-  [providerDialog, helpDialog, deleteDialog].forEach(dialog => dialog.addEventListener("click", event => {
+  [providerDialog, accountDialog, helpDialog, deleteDialog].forEach(dialog => dialog.addEventListener("click", event => {
     if (event.target === dialog) dialog.close();
   }));
 
@@ -1758,7 +1938,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     state.evaluation.source = "demo";
     state.currentView = "fit";
   }
-  serverConfigPromise = checkServerAiConfig();
+  serverConfigPromise = checkServerAiConfig().then(checkCheckoutReturn);
   updateProviderUi();
   if (state.profile || state.job || state.applications.length) showApp(canOpen(state.currentView) ? state.currentView : "profile");
 })();

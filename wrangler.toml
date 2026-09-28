@@ -4,6 +4,12 @@ main = "cloudflare/worker.mjs"
 compatibility_date = "2026-09-27"
 workers_dev = true
 
+[vars]
+BILLING_ENABLED = "false"
+MONETIZATION_ENFORCED = "false"
+CHECKOUT_TEST_ENABLED = "false"
+STRIPE_TEST_PRICE_ID = "price_1UKisfDS4HQRiHjB9C5GgYJ0"
+
 [[routes]]
 pattern = "jobist.peji.ca"
 custom_domain = true

@@ -1,0 +1,16 @@
+name = "jobist-billing-test"
+account_id = "02080b986c86400a53903f503fba7446"
+main = "cloudflare/worker.mjs"
+compatibility_date = "2026-09-27"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jobist-billing-test"
+database_id = "82305e4c-a157-4343-af0e-f4f411019c50"
+migrations_dir = "migrations"
+
+[vars]
+BILLING_ENABLED = "false"
+CHECKOUT_TEST_ENABLED = "false"
+MONETIZATION_ENFORCED = "false"
+STRIPE_TEST_PRICE_ID = "price_1UKisfDS4HQRiHjB9C5GgYJ0"

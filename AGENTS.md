@@ -28,6 +28,7 @@ same computer as the model.
 - [Free Tier API & Local LLM Integration Plan](docs/free-tier-and-local-llm-plan.md) (current active plan)
 - [Local LLM Plan](docs/local-llm-plan.md)
 - [Architecture & Design](docs/architecture.md)
+- [Monetization Implementation Handoff](docs/monetization-implementation-plan.md) (approved proposal; live billing awaits launch checks)
 
 ## Core Workflow & Pathways
 

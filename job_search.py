@@ -18,6 +18,67 @@ from urllib.parse import urlencode
 
 
 PROVINCES = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
+PROVINCE_FULL_NAMES = {
+    "AB": "Alberta",
+    "BC": "British Columbia",
+    "MB": "Manitoba",
+    "NB": "New Brunswick",
+    "NL": "Newfoundland and Labrador",
+    "NS": "Nova Scotia",
+    "NT": "Northwest Territories",
+    "NU": "Nunavut",
+    "ON": "Ontario",
+    "PE": "Prince Edward Island",
+    "QC": "Quebec",
+    "SK": "Saskatchewan",
+    "YT": "Yukon",
+}
+
+PROVINCE_PATTERNS = {
+    "AB": re.compile(r"\b(AB|Alberta|Calgary|Edmonton|Red Deer|Lethbridge)\b", re.I),
+    "BC": re.compile(r"\b(BC|British Columbia|Vancouver|Victoria|Burnaby|Surrey|Richmond|Kelowna|Kamloops|Nanaimo|Abbotsford|Coquitlam)\b", re.I),
+    "MB": re.compile(r"\b(MB|Manitoba|Winnipeg|Brandon)\b", re.I),
+    "NB": re.compile(r"\b(NB|New Brunswick|Nouveau-Brunswick|Fredericton|Moncton|Saint John)\b", re.I),
+    "NL": re.compile(r"\b(NL|Newfoundland|Labrador|Terre-Neuve|St\.?\s*John'?s)\b", re.I),
+    "NS": re.compile(r"\b(NS|Nova Scotia|Nouvelle-[ÉE]cosse|Halifax|Dartmouth|Sydney)\b", re.I),
+    "NT": re.compile(r"\b(NT|Northwest Territories|Territoires du Nord-Ouest|Yellowknife)\b", re.I),
+    "NU": re.compile(r"\b(NU|Nunavut|Iqaluit)\b", re.I),
+    "ON": re.compile(r"\b(ON|Ontario|Toronto|Ottawa|Mississauga|Brampton|Hamilton|London|Waterloo|Kitchener|Kanata|Markham|Vaughan|Oakville|Burlington|Guelph|Kingston|Sudbury|Thunder Bay)\b", re.I),
+    "PE": re.compile(r"\b(PE|PEI|Prince Edward Island|[ÎI]le-du-Prince-[ÉE]douard|Charlottetown)\b", re.I),
+    "QC": re.compile(r"\b(QC|Quebec|Qu[ée]bec|Montreal|Montr[ée]al|Laval|Gatineau|Longueuil|Sherbrooke|L[ée]vis|Trois-Rivi[èe]res)\b", re.I),
+    "SK": re.compile(r"\b(SK|Saskatchewan|Saskatoon|Regina|Prince Albert|Moose Jaw)\b", re.I),
+    "YT": re.compile(r"\b(YT|Yukon|Whitehorse)\b", re.I),
+}
+
+
+def matches_location(job_loc: str, province: str = "", city: str = "") -> bool:
+    loc = str(job_loc or "").strip()
+    if not province and not city:
+        return True
+
+    if city:
+        city_regex = re.compile(rf"\b{re.escape(city)}\b", re.I)
+        if city_regex.search(loc):
+            return True
+        if province and re.search(r"\bremote\b", loc, re.I) and PROVINCE_PATTERNS.get(province, re.compile(r"")).search(loc):
+            return True
+        if not province and re.search(r"\bremote\b", loc, re.I):
+            return True
+        return False
+
+    if province:
+        target_pattern = PROVINCE_PATTERNS.get(province)
+        if target_pattern and target_pattern.search(loc):
+            return True
+        has_other_province = any(code != province and pat.search(loc) for code, pat in PROVINCE_PATTERNS.items())
+        if has_other_province:
+            return False
+        if re.search(r"\b(remote|canada)\b", loc, re.I):
+            return True
+        return False
+    return True
+
+
 JOB_BANK_HOSTS = {"en": "https://www.jobbank.gc.ca", "fr": "https://www.guichetemplois.gc.ca"}
 MAX_SOURCE_BYTES = 3 * 1024 * 1024
 _job_bank_lock = threading.Lock()
@@ -110,18 +171,25 @@ def parse_job_bank_detail(markup: str, posting_id: str, language: str = "en") ->
     }
 
 
-def search_job_bank(query: str, province: str, language: str) -> list[dict]:
+def search_job_bank(query: str, province: str, language: str, city: str = "") -> list[dict]:
     params = {"searchstring": query, "fage": "14", "sort": "D"}
     if province:
         params["fprov"] = province
+    if city:
+        params["locationstring"] = city
     markup = job_bank_text(f"{JOB_BANK_HOSTS[language]}/jobsearch/jobsearch?{urlencode(params)}")
     if not re.search(r"<article\b[^>]*id=[\"']article-\d+|id=[\"']results-count[\"']", markup, re.I):
         raise ValueError("Search page could not be read")
     return parse_job_bank_cards(markup, language)
 
 
-def search_freehire(query: str) -> list[dict]:
-    params = {"q": query, "countries": "ca", "posted_within_days": "14", "limit": "25", "semantic_ratio": "0", "description_format": "text"}
+def search_freehire(query: str, province: str = "", city: str = "") -> list[dict]:
+    search_q = query
+    if city:
+        search_q = f"{query} {city}"
+    elif province and province in PROVINCE_FULL_NAMES:
+        search_q = f"{query} {PROVINCE_FULL_NAMES[province]}"
+    params = {"q": search_q, "countries": "ca", "posted_within_days": "14", "limit": "25", "semantic_ratio": "0", "description_format": "text"}
     payload = json.loads(source_text(f"https://freehire.me/api/v1/agent/jobs/search?{urlencode(params)}", "application/json"))
     if not isinstance(payload.get("data"), list):
         raise ValueError("Invalid Freehire response")
@@ -232,6 +300,7 @@ def get_eluta_detail(posting_id: str) -> dict:
 def scan_jobs(body: dict) -> dict:
     query = " ".join(str(body.get("query") or "").split())
     province = str(body.get("province") or "").upper()
+    city = str(body.get("city") or "").strip()
     language = str(body.get("language") or "en")
     if not 2 <= len(query) <= 120:
         raise ValueError("Enter 2 to 120 characters of job search terms")
@@ -239,15 +308,16 @@ def scan_jobs(body: dict) -> dict:
         raise ValueError("Choose a valid province or all Canada")
     if language not in {"en", "fr", "both"}:
         raise ValueError("Choose a valid search language")
+    eluta_loc = ", ".join(p for p in (city, province) if p)
     calls = [
-        ("Freehire", search_freehire, (query,)),
-        ("Eluta", search_eluta, (query, province)),
+        ("Freehire", search_freehire, (query, province, city)),
+        ("Eluta", search_eluta, (query, eluta_loc)),
     ]
     if language in {"fr", "both"}:
-        calls.append(("Guichet-Emplois", search_job_bank, (query, province, "fr")))
+        calls.append(("Guichet-Emplois", search_job_bank, (query, province, "fr", city)))
     if language in {"en", "both"}:
-        calls.append(("Job Bank", search_job_bank, (query, province, "en")))
-    jobs, statuses, seen = [], [], set()
+        calls.append(("Job Bank", search_job_bank, (query, province, "en", city)))
+    raw_jobs, statuses, seen = [], [], set()
     with ThreadPoolExecutor(max_workers=len(calls)) as pool:
         futures = [(name, pool.submit(fn, *args)) for name, fn, args in calls]
         for name, future in futures:
@@ -257,13 +327,22 @@ def scan_jobs(body: dict) -> dict:
                 for job in source_jobs:
                     key = re.sub(r"[?#].*$", "", job["url"]).rstrip("/").lower()
                     if key not in seen:
-                        jobs.append(job)
+                        raw_jobs.append(job)
                         seen.add(key)
             except Exception:
                 statuses.append({"source": name, "ok": False, "count": 0})
     if not any(status["ok"] for status in statuses):
         raise RuntimeError("Job sources are unavailable right now. Try the scan again shortly.")
-    return {"jobs": jobs[:50], "sources": statuses, "searchedAt": datetime.now(timezone.utc).isoformat()}
+
+    # Filter jobs by province and city
+    final_jobs = [job for job in raw_jobs if matches_location(job.get("location"), province, city)]
+    if city and len(final_jobs) < 5 and province:
+        broader = [job for job in raw_jobs if matches_location(job.get("location"), province, "") and job not in final_jobs]
+        final_jobs.extend(broader)
+    elif (province or city) and not final_jobs:
+        final_jobs = [job for job in raw_jobs if matches_location(job.get("location"), province, "")]
+
+    return {"jobs": final_jobs[:50], "sources": statuses, "searchedAt": datetime.now(timezone.utc).isoformat()}
 
 
 def get_job_bank_detail(posting_id: str, language: str) -> dict:

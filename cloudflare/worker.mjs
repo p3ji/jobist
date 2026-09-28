@@ -1,15 +1,20 @@
 // Hosted Jobist: same-origin static assets and an ephemeral Gemini adapter.
 import { getJobBankDetail, getJobDetail, scanJobs } from "./job-search.mjs";
+import { handleMonetization } from "./monetization.mjs";
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MODEL_PATTERN = /^gemini-[a-z0-9.-]+$/;
+const QWEN_ENDPOINTS = Object.freeze({
+  singapore: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+  beijing: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+});
 const SECURITY_HEADERS = {
   "Cache-Control": "no-store",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Cross-Origin-Opener-Policy": "same-origin",
-  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'",
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; form-action 'self'; base-uri 'none'",
 };
 
 function jsonResponse(status, payload) {
@@ -85,9 +90,10 @@ async function handleAi(request, env) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return jsonResponse(400, { error: "Invalid request" });
   const provider = body.provider || (new URL(request.url).pathname === "/api/gemini" ? "gemini" : null);
   if (provider === "local") return jsonResponse(400, { error: "Local AI is available when Jobist runs on the same computer as LM Studio" });
+  if (provider === "qwen") return handleQwen(body);
   if (provider !== "gemini") return jsonResponse(400, { error: "Choose an AI provider" });
   const clientKey = (typeof body.apiKey === "string" && body.apiKey.trim().length >= 10) ? body.apiKey.trim() : "";
-  const apiKey = clientKey || await resolveSecret(env, "GEMINI_API_KEY", "GOOGLE_API_KEY");
+  const apiKey = clientKey || (env?.MONETIZATION_ENFORCED === "true" ? "" : await resolveSecret(env, "GEMINI_API_KEY", "GOOGLE_API_KEY"));
   const model = (typeof body.model === "string" && body.model.trim()) ? body.model.trim() : "gemini-2.5-flash";
   const { prompt, schema, file } = body;
   if (!apiKey || apiKey.length < 10) return jsonResponse(400, { error: "A valid Gemini API key is required" });
@@ -132,6 +138,46 @@ async function handleAi(request, env) {
     return jsonResponse(200, { output, provider: "gemini", model });
   } catch {
     return jsonResponse(502, { error: "Could not reach the AI provider" });
+  }
+}
+
+async function handleQwen(body) {
+  const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+  const endpoint = Object.hasOwn(QWEN_ENDPOINTS, body.region) ? QWEN_ENDPOINTS[body.region] : null;
+  if (!apiKey || apiKey.length < 10 || apiKey.length > 512) return jsonResponse(400, { error: "A valid Qwen API key is required" });
+  if (!endpoint) return jsonResponse(400, { error: "Choose a supported Qwen region" });
+  if (body.model !== "qwen3.8-27b") return jsonResponse(400, { error: "Unsupported Qwen model" });
+  if (typeof body.prompt !== "string" || !body.prompt.trim() || body.prompt.length > 100_000) return jsonResponse(400, { error: "A prompt is required" });
+  if (body.file) return jsonResponse(400, { error: "Qwen document uploads are not yet supported. Paste document text or use manual profile entry." });
+  const schema = body.schema;
+  if (schema != null && (typeof schema !== "object" || Array.isArray(schema) || JSON.stringify(schema).length > 30_000)) return jsonResponse(400, { error: "Invalid output schema" });
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "qwen3.8-27b",
+        messages: [{ role: "user", content: schema ? `${body.prompt}\n\nReturn only one valid JSON object.` : body.prompt }],
+        ...(schema ? { response_format: { type: "json_object" } } : {}),
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (response.status >= 300 && response.status < 400) return jsonResponse(502, { error: "Qwen redirected unexpectedly; the request was stopped" });
+    const raw = await readLimitedText(response.body, MAX_OUTPUT_BYTES);
+    let result;
+    try { result = JSON.parse(raw); } catch { return jsonResponse(502, { error: "Qwen returned an invalid response" }); }
+    if (!response.ok) return jsonResponse(response.status, { error: "Qwen request failed. Check your key, region, model access, and provider quota." });
+    const content = result?.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) return jsonResponse(502, { error: "Qwen returned no text output" });
+    let output;
+    try { output = schema ? JSON.parse(content) : content.trim(); }
+    catch { return jsonResponse(502, { error: "Qwen returned invalid JSON. Try again with a shorter input." }); }
+    if (schema && !matchesSchema(output, schema)) return jsonResponse(502, { error: "Qwen returned the wrong response shape" });
+    return jsonResponse(200, { output, provider: "qwen", model: "qwen3.8-27b" });
+  } catch {
+    return jsonResponse(502, { error: "Could not reach Qwen. Check the selected region and try again." });
   }
 }
 
@@ -192,23 +238,29 @@ async function handleJobRerank(request, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (["/api/auth/request-code", "/api/auth/verify-code", "/api/auth/logout", "/api/me/usage", "/api/checkout/session", "/api/checkout/status", "/api/stripe/webhook"].includes(url.pathname))
+      return handleMonetization(request, env);
     if (url.pathname === "/api/local-models" && request.method === "GET") return jsonResponse(200, { available: false, models: [] });
     if (url.pathname === "/api/ai/config" && request.method === "GET") {
       const defaultGemini = await resolveSecret(env, "GEMINI_API_KEY", "GOOGLE_API_KEY");
       const defaultCohere = await resolveSecret(env, "COHERE_API_KEY");
       return jsonResponse(200, {
-        defaultGeminiAvailable: Boolean(defaultGemini && defaultGemini.length >= 10),
-        defaultCohereAvailable: Boolean(defaultCohere && defaultCohere.length >= 10),
+        defaultGeminiAvailable: env?.MONETIZATION_ENFORCED !== "true" && Boolean(defaultGemini && defaultGemini.length >= 10),
+        defaultCohereAvailable: env?.MONETIZATION_ENFORCED !== "true" && Boolean(defaultCohere && defaultCohere.length >= 10),
         defaultModel: "gemini-2.5-flash",
-        envKeys: Object.keys(env || {}).filter(k => k !== "ASSETS"),
+        billingEnabled: env?.BILLING_ENABLED === "true" && Boolean(env.DB && env.TURNSTILE_SITE_KEY),
+        checkoutTestEnabled: env?.BILLING_ENABLED === "true" && env?.CHECKOUT_TEST_ENABLED === "true",
+        turnstileSiteKey: env?.BILLING_ENABLED === "true" && env.DB ? (env.TURNSTILE_SITE_KEY || "") : "",
       });
     }
     if (["/api/jobs/scan", "/api/jobs/detail"].includes(url.pathname)) {
       if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
+      if (env?.MONETIZATION_ENFORCED === "true") return jsonResponse(503, { code: "STAGE_UNAVAILABLE", error: "Hosted job scans are temporarily unavailable while account protection is enabled." });
       return handleJobSearch(request, url.pathname.endsWith("/detail"));
     }
     if (url.pathname === "/api/jobs/rerank") {
       if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
+      if (env?.MONETIZATION_ENFORCED === "true") return jsonResponse(503, { code: "STAGE_UNAVAILABLE", error: "Hosted reranking is temporarily unavailable while account protection is enabled." });
       return handleJobRerank(request, env);
     }
     if (["/api/ai", "/api/gemini"].includes(url.pathname)) {

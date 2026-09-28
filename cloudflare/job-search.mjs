@@ -1,5 +1,61 @@
 // Public job sources. Search terms are supplied by the browser; no profile or AI key is sent here.
 const PROVINCES = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]);
+const PROVINCE_FULL_NAMES = {
+  AB: "Alberta",
+  BC: "British Columbia",
+  MB: "Manitoba",
+  NB: "New Brunswick",
+  NL: "Newfoundland and Labrador",
+  NS: "Nova Scotia",
+  NT: "Northwest Territories",
+  NU: "Nunavut",
+  ON: "Ontario",
+  PE: "Prince Edward Island",
+  QC: "Quebec",
+  SK: "Saskatchewan",
+  YT: "Yukon",
+};
+
+const PROVINCE_PATTERNS = {
+  AB: /\b(AB|Alberta|Calgary|Edmonton|Red Deer|Lethbridge)\b/i,
+  BC: /\b(BC|British Columbia|Vancouver|Victoria|Burnaby|Surrey|Richmond|Kelowna|Kamloops|Nanaimo|Abbotsford|Coquitlam)\b/i,
+  MB: /\b(MB|Manitoba|Winnipeg|Brandon)\b/i,
+  NB: /\b(NB|New Brunswick|Nouveau-Brunswick|Fredericton|Moncton|Saint John)\b/i,
+  NL: /\b(NL|Newfoundland|Labrador|Terre-Neuve|St\.?\s*John'?s)\b/i,
+  NS: /\b(NS|Nova Scotia|Nouvelle-[ÉE]cosse|Halifax|Dartmouth|Sydney)\b/i,
+  NT: /\b(NT|Northwest Territories|Territoires du Nord-Ouest|Yellowknife)\b/i,
+  NU: /\b(NU|Nunavut|Iqaluit)\b/i,
+  ON: /\b(ON|Ontario|Toronto|Ottawa|Mississauga|Brampton|Hamilton|London|Waterloo|Kitchener|Kanata|Markham|Vaughan|Oakville|Burlington|Guelph|Kingston|Sudbury|Thunder Bay)\b/i,
+  PE: /\b(PE|PEI|Prince Edward Island|[ÎI]le-du-Prince-[ÉE]douard|Charlottetown)\b/i,
+  QC: /\b(QC|Quebec|Qu[ée]bec|Montreal|Montr[ée]al|Laval|Gatineau|Longueuil|Sherbrooke|L[ée]vis|Trois-Rivi[èe]res)\b/i,
+  SK: /\b(SK|Saskatchewan|Saskatoon|Regina|Prince Albert|Moose Jaw)\b/i,
+  YT: /\b(YT|Yukon|Whitehorse)\b/i,
+};
+
+function matchesLocation(jobLoc, province = "", city = "") {
+  const loc = String(jobLoc || "").trim();
+  if (!province && !city) return true;
+
+  if (city) {
+    const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const cityRegex = new RegExp(`\\b${escaped}\\b`, "i");
+    if (cityRegex.test(loc)) return true;
+    if (province && /\bremote\b/i.test(loc) && PROVINCE_PATTERNS[province]?.test(loc)) return true;
+    if (!province && /\bremote\b/i.test(loc)) return true;
+    return false;
+  }
+
+  if (province) {
+    const targetPattern = PROVINCE_PATTERNS[province];
+    if (targetPattern?.test(loc)) return true;
+    const hasOtherProvince = Object.entries(PROVINCE_PATTERNS).some(([code, pat]) => code !== province && pat.test(loc));
+    if (hasOtherProvince) return false;
+    if (/\b(remote|canada)\b/i.test(loc)) return true;
+    return false;
+  }
+  return true;
+}
+
 const JOB_BANK_HOSTS = { en: "https://www.jobbank.gc.ca", fr: "https://www.guichetemplois.gc.ca" };
 const MAX_SOURCE_BYTES = 3 * 1024 * 1024;
 let jobBankQueue = Promise.resolve();
@@ -104,16 +160,23 @@ export function parseJobBankDetail(html, id, lang = "en") {
   return { title, company, jobLocation: [locality, region].filter(Boolean).join(", "), description, url: `${host}/jobsearch/jobposting/${id}` };
 }
 
-async function searchJobBank(query, province, lang) {
+async function searchJobBank(query, province, lang, city = "") {
   const params = new URLSearchParams({ searchstring: query, fage: "14", sort: "D" });
   if (province) params.set("fprov", province);
+  if (city) params.set("locationstring", city);
   const html = await fetchJobBank(`${JOB_BANK_HOSTS[lang]}/jobsearch/jobsearch?${params}`);
   if (!/<article\b[^>]*id=["']article-\d+/.test(html) && !/id=["']results-count["']/.test(html)) throw new Error("Search page could not be read");
   return parseJobBankCards(html, lang);
 }
 
-async function searchFreehire(query) {
-  const params = new URLSearchParams({ q: query, countries: "ca", posted_within_days: "14", limit: "25", semantic_ratio: "0", description_format: "text" });
+async function searchFreehire(query, province = "", city = "") {
+  let searchQ = query;
+  if (city) {
+    searchQ = `${query} ${city}`;
+  } else if (province && PROVINCE_FULL_NAMES[province]) {
+    searchQ = `${query} ${PROVINCE_FULL_NAMES[province]}`;
+  }
+  const params = new URLSearchParams({ q: searchQ, countries: "ca", posted_within_days: "14", limit: "25", semantic_ratio: "0", description_format: "text" });
   const body = await fetchSource(`https://freehire.me/api/v1/agent/jobs/search?${params}`, "application/json");
   let parsed;
   try { parsed = JSON.parse(body); } catch { throw new Error("Invalid API response"); }
@@ -195,32 +258,46 @@ export async function getElutaDetail(id) {
 export async function scanJobs(input) {
   const query = String(input?.query || "").trim().replace(/\s+/g, " ");
   const province = String(input?.province || "").toUpperCase();
+  const city = String(input?.city || "").trim();
   const language = String(input?.language || "en");
   if (query.length < 2 || query.length > 120) throw new RangeError("Enter 2 to 120 characters of job search terms");
   if (province && !PROVINCES.has(province)) throw new RangeError("Choose a valid province or all Canada");
   if (!["en", "fr", "both"].includes(language)) throw new RangeError("Choose a valid search language");
+  const elutaLocation = [city, province].filter(Boolean).join(", ");
   const sources = [
-    { name: "Freehire", task: searchFreehire(query) },
-    { name: "Eluta", task: searchEluta(query, province) },
-    ...(language === "fr" || language === "both" ? [{ name: "Guichet-Emplois", task: searchJobBank(query, province, "fr") }] : []),
-    ...(language === "en" || language === "both" ? [{ name: "Job Bank", task: searchJobBank(query, province, "en") }] : []),
+    { name: "Freehire", task: searchFreehire(query, province, city) },
+    { name: "Eluta", task: searchEluta(query, elutaLocation) },
+    ...(language === "fr" || language === "both" ? [{ name: "Guichet-Emplois", task: searchJobBank(query, province, "fr", city) }] : []),
+    ...(language === "en" || language === "both" ? [{ name: "Job Bank", task: searchJobBank(query, province, "en", city) }] : []),
   ];
   // Job Bank requests are queued above to preserve the source's crawl delay.
   const settled = await Promise.allSettled(sources.map(source => source.task));
   const status = settled.map((result, index) => ({ source: sources[index].name, ok: result.status === "fulfilled", count: result.status === "fulfilled" ? result.value.length : 0 }));
   if (!status.some(item => item.ok)) throw new Error("Job sources are unavailable right now. Try the scan again shortly.");
   const seen = new Set();
-  const jobs = [];
+  const rawJobs = [];
   for (const result of settled) {
     if (result.status !== "fulfilled") continue;
     for (const job of result.value) {
       const key = job.url.replace(/[?#].*$/, "").replace(/\/$/, "").toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      jobs.push(job);
+      rawJobs.push(job);
     }
   }
-  return { jobs: jobs.slice(0, 50), sources: status, searchedAt: new Date().toISOString() };
+
+  // Filter jobs by province and city if specified
+  let finalJobs = rawJobs.filter(job => matchesLocation(job.location, province, city));
+  if (city && finalJobs.length < 5 && province) {
+    // If strict city filtering yielded fewer than 5, include other matching province jobs
+    const broader = rawJobs.filter(job => matchesLocation(job.location, province, "") && !finalJobs.includes(job));
+    finalJobs = [...finalJobs, ...broader];
+  } else if ((province || city) && !finalJobs.length) {
+    // If strict filter removed all, fall back to matching province
+    finalJobs = rawJobs.filter(job => matchesLocation(job.location, province, ""));
+  }
+
+  return { jobs: finalJobs.slice(0, 50), sources: status, searchedAt: new Date().toISOString() };
 }
 
 export async function getJobBankDetail(id, lang) {

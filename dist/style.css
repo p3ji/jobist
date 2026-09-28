@@ -276,6 +276,11 @@ dialog li { margin-bottom: .45rem; }
 dialog::backdrop { background: rgba(20,29,25,.55); backdrop-filter: blur(4px); }
 .dialog-close { float: right; width: 40px; height: 40px; border: 0; background: transparent; font-size: 1.7rem; cursor: pointer; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.5rem; }
+#accountDialog form { display: grid; gap: 1rem; margin: 1rem 0; }
+#accountDialog form.is-hidden { display: none; }
+#accountDialog #accountTurnstile { min-height: 65px; }
+#accountSignedIn .button + .button { margin-top: .6rem; }
+#accountStatus { color: var(--muted); font-size: .9rem; }
 .provider-warning { margin: .2rem 0 1rem; padding: .9rem; border-radius: 10px; background: var(--orange-soft); color: #70422e; font-size: .79rem; }
 .provider-warning p { margin: .25rem 0 .45rem; }
 .provider-warning a { color: #71381f; font-weight: 700; }
@@ -307,6 +312,9 @@ dialog::backdrop { background: rgba(20,29,25,.55); backdrop-filter: blur(4px); }
 @media (max-width: 560px) {
   .scan-card-head { flex-direction: column; gap: .4rem; }
   .topbar { min-height: 64px; padding: 10px 16px; }
+  .top-actions { gap: 6px; }
+  #accountButton { min-height: 40px; padding: .4rem .55rem; font-size: .72rem; }
+  .provider-pill { padding: .4rem .55rem; }
   .privacy-pill { display: none; }
   .hero { min-height: calc(100dvh - 64px); padding-inline: 18px; }
   .hero h1 { font-size: clamp(2.8rem, 13.5vw, 4rem); }
