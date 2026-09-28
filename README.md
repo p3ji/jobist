@@ -19,20 +19,22 @@ The intended GUI journey follows the source project's three stages:
 | Stage | Available now | Still to build |
 | --- | --- | --- |
 | Profile | Guided form and one document at a time for AI fact extraction; the user edits and confirms the result. | Combine multiple sources such as a CV, LinkedIn export, diplomas, references, and past applications; paste a CV as a dedicated import path; guided profile interview; source records for each fact. |
-| Find jobs | Scan Job Bank and Freehire from a profile-based search title and give up to 15 readable postings a quick AI High/Medium/Low match estimate. If the candidate does not know what to search for, an optional helper suggests titles from confirmed experience. A chosen title fills the scan form. The candidate can also paste a posting. | Add more portals, broader search strategies, and source health monitoring. |
+| Find jobs | AI plans several search directions from confirmed work and skills, including transferable functions outside known titles. Jobist searches Job Bank and Freehire, then gives up to 15 readable postings a quick AI High/Medium/Low match estimate. A specific keyword search remains available. The candidate can also paste a posting. | Add more portals, broader search strategies, and source health monitoring. |
 | Prepare application | AI fit report with gates, tailored résumé and cover-letter drafts, a separate review pass, editable output, print/save as PDF, and a local tracker. | Fuller document formatting and export checks comparable to the source framework. Sending or submitting remains a user action outside Jobist. |
 
 Target roles and career goals are optional. You can confirm your experience
-without knowing your next title, then paste a job posting to explore its fit.
+without knowing your next title, then discover opportunities or paste a job
+posting to explore its fit.
 When both fields are blank, Jobist shows career direction as not assessed and
 calculates the overall score from skills, experience, and work style only. The
-job step can suggest role titles to explore, with each idea linked to confirmed
-experience or skills. This mirrors the original tool's search setup, where role
-types are suggested while configuring search terms, rather than a separate
-search command. Select **Search this title** to place an idea in the scan form,
-then select **Scan and match jobs**. AI suggestions and matching need a connected
-provider. The scan's High/Medium/Low estimate is a quick screen using confirmed
-profile evidence and job descriptions, not the full fit report. Listings without
+job step plans multiple search directions from confirmed experience and
+skills, with each direction linked to evidence. This follows the original tool's
+search setup, where multiple work categories guide discovery. Select
+**Discover matching jobs** to search those directions automatically, or open
+the specific title or keyword search for a focused query. AI planning and
+matching need a connected provider. The scan's High/Medium/Low estimate is a
+quick screen using confirmed profile evidence and job descriptions, not the
+full fit report. Listings without
 readable descriptions remain unrated. Open and verify each original posting;
 some sources do not expose the full description, so you may need to paste it.
 Select one job and get the full fit report before drafting an application.

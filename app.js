@@ -24,10 +24,10 @@
     required: ["overall", "recommendation", "dimensions", "gates", "strengths", "gaps", "keywords"],
   };
   const EVIDENCE_CLAIM_SCHEMA = { type: "object", properties: { text: { type: "string" }, evidenceIds: { type: "array", items: { type: "integer" } } }, required: ["text", "evidenceIds"] };
-  const ROLE_IDEAS_SCHEMA = {
+  const SEARCH_DIRECTIONS_SCHEMA = {
     type: "object",
-    properties: { suggestions: { type: "array", items: { type: "object", properties: { title: { type: "string" }, reason: { type: "string" }, evidenceIds: { type: "array", items: { type: "integer" } } }, required: ["title", "reason", "evidenceIds"] } } },
-    required: ["suggestions"],
+    properties: { directions: { type: "array", items: { type: "object", properties: { term: { type: "string" }, reason: { type: "string" }, evidenceIds: { type: "array", items: { type: "integer" } } }, required: ["term", "reason", "evidenceIds"] } } },
+    required: ["directions"],
   };
   const QUICK_MATCH_SCHEMA = {
     type: "object",
@@ -52,7 +52,6 @@
 
   const emptyState = () => ({
     profile: null,
-    roleIdeas: null,
     scan: null,
     job: null,
     evaluation: null,
@@ -240,68 +239,80 @@
     return evidence;
   }
 
-  async function suggestRolesWithAi() {
+  async function planProfileSearchWithAi() {
     const profile = state.profile;
     const session = { ...aiSession };
-    const evidence = profileEvidence(profile).filter(item => ["experience", "skill"].includes(item.type));
-    if (!evidence.length) throw new Error("Add confirmed experience or skills before exploring roles.");
-    const prompt = `Suggest up to five realistic job-title search terms for a person exploring career options. Use only the confirmed experience and skills below. These are ideas to investigate, not claims that the candidate qualifies or that a vacancy exists. For each title, explain the connection to the supplied evidence and cite at least one exact evidence ID. Do not invent education, credentials, years of experience, language proficiency, work authorization, or career goals. Return an empty suggestions list if the evidence is insufficient.\n\nCONFIRMED EVIDENCE:\n${JSON.stringify(evidence)}`;
-    const result = await callAi({ prompt, schema: ROLE_IDEAS_SCHEMA, session });
-    if (state.profile !== profile) throw new Error("Your profile changed while exploring roles. Try again with the current profile.");
+    const allEvidence = profileEvidence(profile);
+    const evidence = [...allEvidence.filter(item => item.type === "experience").slice(0, 8),
+      ...allEvidence.filter(item => item.type === "skill").slice(0, 12)]
+      .map(item => ({ ...item, text: item.text.slice(0, 300) }));
+    if (!evidence.length) throw new Error("Add confirmed experience or skills before discovering jobs.");
+    const prompt = `Create three distinct, short job-board search queries from the candidate's confirmed work, not merely their current or desired job titles. The goal is to discover real jobs whose work may fit even when the candidate does not know the job title. Cover: (1) a direct work function, (2) a different role family using transferable skills, and (3) an adjacent function or domain. Use 2-5 useful words per term; a job title is allowed but at least one term must describe a function or transferable skill rather than repeat a title below. Keep terms broad enough for Job Bank and Freehire but specific enough to avoid unrelated jobs. For each direction, explain its link to exact evidence IDs. Search terms are hypotheses, not claims that the candidate qualifies. Do not invent credentials, industries, languages, years of experience, or goals. Return exactly three directions if the evidence supports them, otherwise return two.\n\nKNOWN TITLES TO EXPAND BEYOND: ${JSON.stringify({ headline: profile.headline, targetRoles: profile.targetRoles })}\nCONFIRMED WORK EVIDENCE:\n${JSON.stringify(evidence)}`;
+    const result = await callAi({ prompt, schema: SEARCH_DIRECTIONS_SCHEMA, session });
+    if (state.profile !== profile) throw new Error("Your profile changed while planning the search. Try again with the current profile.");
     const validIds = new Set(evidence.map(item => item.id));
-    const suggestions = (Array.isArray(result.suggestions) ? result.suggestions : []).slice(0, 5).map(item => ({
-      title: String(item.title || "").trim(),
-      reason: String(item.reason || "").trim(),
-      evidenceIds: [...new Set((Array.isArray(item.evidenceIds) ? item.evidenceIds : []).map(Number).filter(id => validIds.has(id)))],
-    })).filter(item => item.title && item.reason && item.evidenceIds.length);
-    if (!suggestions.length) throw new Error("The AI could not suggest roles from the confirmed evidence. Add more experience details and try again.");
-    return { suggestions, evidence, source: session.provider, model: session.model, createdAt: new Date().toISOString() };
-  }
-
-  function renderRoleIdeas() {
-    const list = $("#roleSuggestions");
-    const ideas = state.roleIdeas;
-    list.classList.toggle("is-hidden", !ideas?.suggestions?.length);
-    if (!ideas?.suggestions?.length) { list.replaceChildren(); return; }
-    list.innerHTML = ideas.suggestions.map((item, index) => `<li><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.reason)}</p><small>Based on: ${item.evidenceIds.map(id => {
-      const source = ideas.evidence.find(entry => entry.id === id);
-      return source ? escapeHtml(source.text) : "";
-    }).filter(Boolean).join("; ")}</small><button class="button button-secondary scan-role-button" type="button" data-role-index="${index}">Search this title</button></li>`).join("");
-  }
-
-  function suggestedSearchTerms(profile) {
-    const explicit = String(profile.targetRoles || "").split(/[,;\n]/).map(value => value.trim()).find(Boolean);
-    if (explicit) return explicit;
-    const headline = String(profile.headline || "").trim();
-    if (headline) return headline;
-    return lines(profile.experience)[0]?.split(/[—–,]/)[0]?.trim() || "";
+    const seen = new Set();
+    const directions = (Array.isArray(result.directions) ? result.directions : []).slice(0, 4).map(item => ({
+      term: String(item.term || "").trim().replace(/\s+/g, " ").slice(0, 120),
+      reason: String(item.reason || "").trim().slice(0, 240),
+      evidenceIds: [...new Set((Array.isArray(item.evidenceIds) ? item.evidenceIds : []).filter(id => validIds.has(id)))],
+    })).filter(item => {
+      const key = item.term.toLowerCase();
+      if (item.term.length < 2 || !item.reason || !item.evidenceIds.length || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 3);
+    if (directions.length < 2) throw new Error("The AI could not find enough distinct search directions from the confirmed evidence. Add more work details or search a specific keyword.");
+    return { directions, provider: session.provider, model: session.model };
   }
 
   function initializeScanForm() {
-    if (!state.profile || $("#scanQuery").value.trim()) return;
-    $("#scanQuery").value = state.scan?.query || suggestedSearchTerms(state.profile);
+    if (!state.profile || $("#scanProvince").dataset.initialized) return;
+    if (!$("#scanQuery").value.trim() && state.scan?.mode === "manual") $("#scanQuery").value = state.scan.query || "";
     const location = String(state.profile.location || "");
     const provinceCodes = { alberta: "AB", "british columbia": "BC", manitoba: "MB", "new brunswick": "NB", newfoundland: "NL", "nova scotia": "NS", ontario: "ON", "prince edward island": "PE", quebec: "QC", québec: "QC", saskatchewan: "SK", yukon: "YT" };
     const code = location.match(/\b(AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT)\b/i)?.[1]?.toUpperCase()
       || Object.entries(provinceCodes).find(([name]) => location.toLowerCase().includes(name))?.[1] || "";
     $("#scanProvince").value = state.scan?.province ?? code;
     $("#scanLanguage").value = state.scan?.language || (/\bfrench\b|\bfran[çc]ais\b/i.test(state.profile.languages || "") ? "both" : "en");
+    $("#scanProvince").dataset.initialized = "true";
   }
 
   function scanPriority(job) {
-    const profileWords = new Set(words([state.profile?.headline, state.profile?.targetRoles, state.profile?.skills, state.profile?.experience].join(" ")));
+    const profileWords = new Set(words([state.profile?.skills, state.profile?.experience].join(" ")));
     const titleMatches = [...new Set(words(job.title))].filter(word => profileWords.has(word));
     const detailMatches = [...new Set(words(job.description || ""))].filter(word => profileWords.has(word));
-    const score = titleMatches.length * 4 + Math.min(detailMatches.length, 4);
+    const score = titleMatches.length * 2 + Math.min(detailMatches.length, 6);
     return { score, terms: [...new Set([...titleMatches, ...detailMatches])].slice(0, 4), label: score >= 8 ? "Higher search priority" : score >= 3 ? "Possible match" : "Broader lead" };
   }
 
   function quickMatchCandidates(jobs) {
     const ranked = jobs.map((job, index) => ({ job, index, priority: scanPriority(job).score }))
       .sort((a, b) => b.priority - a.priority);
-    const jobBank = ranked.filter(item => item.job.detailId).slice(0, 6);
-    const other = ranked.filter(item => !item.job.detailId).slice(0, MAX_QUICK_MATCHES - jobBank.length);
-    return [...jobBank, ...other].sort((a, b) => b.priority - a.priority);
+    const groups = new Map();
+    for (const item of ranked) {
+      const key = Number.isInteger(item.job.directionIndex) ? item.job.directionIndex : 0;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    }
+    const selected = [];
+    let jobBankCount = 0;
+    while (selected.length < MAX_QUICK_MATCHES) {
+      let added = false;
+      for (const group of groups.values()) {
+        while (group.length) {
+          const item = group.shift();
+          if (item.job.detailId && jobBankCount >= 6) continue;
+          selected.push(item);
+          if (item.job.detailId) jobBankCount++;
+          added = true;
+          break;
+        }
+        if (selected.length >= MAX_QUICK_MATCHES) break;
+      }
+      if (!added) break;
+    }
+    return selected;
   }
 
   async function matchScannedJobsWithAi() {
@@ -383,6 +394,43 @@
     catch { return ""; }
   }
 
+  async function searchAllDirections(directions, mode) {
+    const profile = state.profile;
+    const province = $("#scanProvince").value;
+    const language = $("#scanLanguage").value;
+    const jobs = [];
+    const sources = [];
+    const seen = new Set();
+    for (const [directionIndex, direction] of directions.entries()) {
+      $("#scanStatusText").textContent = `Searching ${directionIndex + 1} of ${directions.length}: ${direction.term}…`;
+      try {
+        const response = await fetch("/api/jobs/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: direction.term, province, language }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "The source search failed.");
+        if (!Array.isArray(result.jobs) || !Array.isArray(result.sources)) throw new Error("A job source returned an invalid result.");
+        sources.push(...result.sources.map(source => ({ ...source, direction: direction.term })));
+        const perSource = {};
+        for (const job of result.jobs) {
+          const url = safePostingUrl(job?.url);
+          if (!url || !job.title) continue;
+          const key = url.replace(/[?#].*$/, "").replace(/\/$/, "").toLowerCase();
+          if (seen.has(key)) continue;
+          const cap = mode === "profile" ? (job.source === "Freehire" ? 10 : 4) : 25;
+          if ((perSource[job.source] || 0) >= cap) continue;
+          perSource[job.source] = (perSource[job.source] || 0) + 1;
+          seen.add(key);
+          jobs.push({ ...job, directionIndex, searchTerm: direction.term });
+        }
+      } catch {
+        sources.push({ source: "Job sources", ok: false, count: 0, direction: direction.term });
+      }
+      if (state.profile !== profile) throw new Error("Your profile changed during the scan. Start again with the current profile.");
+    }
+    if (!sources.some(source => source.ok)) throw new Error("Job sources are unavailable right now. Try again shortly.");
+    return { mode, query: mode === "manual" ? directions[0].term : "", directions, province, language,
+      jobs, sources, searchedAt: new Date().toISOString() };
+  }
+
   function renderScanResults() {
     const summary = $("#scanSummary");
     const container = $("#scanResults");
@@ -392,15 +440,21 @@
     if (!scan) { container.replaceChildren(); return; }
     const jobs = Array.isArray(scan.jobs) ? scan.jobs : [];
     const sources = Array.isArray(scan.sources) ? scan.sources : [];
-    const available = sources.filter(source => source.ok).map(source => source.source).join(" and ");
-    const failed = sources.filter(source => !source.ok).map(source => source.source);
+    const directions = Array.isArray(scan.directions) && scan.directions.length ? scan.directions : [{ term: scan.query || "Previous search", reason: "", evidenceIds: [] }];
+    const evidence = profileEvidence(state.profile || {});
+    $("#searchDirections").innerHTML = directions.map(direction => {
+      const cited = (direction.evidenceIds || []).map(id => evidence.find(item => item.id === id)?.text).filter(Boolean).slice(0, 2);
+      return `<li><strong>${escapeHtml(direction.term)}</strong>${direction.reason ? ` — ${escapeHtml(direction.reason)}` : ""}${cited.length ? `<small>Based on: ${escapeHtml(cited.join("; "))}</small>` : ""}</li>`;
+    }).join("");
+    const available = [...new Set(sources.filter(source => source.ok).map(source => source.source))].join(", ");
+    const failedCount = sources.filter(source => !source.ok).length;
     const matches = scan.matches && typeof scan.matches === "object" ? scan.matches : {};
     const rated = Object.keys(matches).length;
     $("#matchButton").textContent = rated ? "Refresh AI matches" : "Retry AI matching";
     const counts = { high: 0, medium: 0, low: 0 };
     Object.values(matches).forEach(match => { if (match?.fit in counts) counts[match.fit]++; });
     const model = scan.matchModel ? ` from ${scan.matchProvider === "local" ? "Local AI" : "Gemini"} (${scan.matchModel})` : "";
-    summary.textContent = `${jobs.length} ${jobs.length === 1 ? "listing" : "listings"} found for “${scan.query || "your search"}” from ${available || "available sources"}${failed.length ? `. ${failed.join(" and ")} could not be checked.` : "."} ${!jobs.length ? "Try another search title or region." : rated ? `${rated} quick AI matches${model}: ${counts.high} High, ${counts.medium} Medium, ${counts.low} Low. ${jobs.length > rated ? "Unrated listings were outside this scan's 15-posting limit or lacked a readable description. " : ""}${scan.matchInterrupted ? "AI matching stopped early; use Refresh AI matches to retry. " : ""}` : "AI matching has not finished. "}Check the original posting; the full fit report comes after you select and evaluate a job.`;
+    summary.textContent = `${jobs.length} ${jobs.length === 1 ? "listing" : "listings"} found across ${directions.length} search ${directions.length === 1 ? "direction" : "directions"} from ${available || "available sources"}.${failedCount ? ` ${failedCount} source ${failedCount === 1 ? "check" : "checks"} could not finish.` : ""} ${!jobs.length ? "Try a specific keyword or a different region." : rated ? `${rated} quick AI matches${model}: ${counts.high} High, ${counts.medium} Medium, ${counts.low} Low. ${jobs.length > rated ? "Unrated listings were outside this scan's 15-posting limit or lacked a readable description. " : ""}${scan.matchInterrupted ? "AI matching stopped early; use Refresh AI matches to retry. " : ""}` : "AI matching has not finished. "}Check the original posting; the full fit report comes after you select and evaluate a job.`;
     const fitOrder = { high: 3, medium: 2, low: 1 };
     const ranked = jobs.map((job, index) => ({ job, index, priority: scanPriority(job), match: matches[index] }))
       .sort((a, b) => (fitOrder[b.match?.fit] || 0) - (fitOrder[a.match?.fit] || 0) || b.priority.score - a.priority.score);
@@ -408,7 +462,7 @@
       const url = safePostingUrl(job.url);
       const label = match ? `${match.fit[0].toUpperCase()}${match.fit.slice(1)} match` : "Not rated";
       const supported = match?.evidenceIds?.map(id => profileEvidence(state.profile).find(item => item.id === id)?.text).filter(Boolean).slice(0, 2) || [];
-      return `<article class="scan-card"><div class="scan-card-head"><div><p class="scan-source">${escapeHtml(job.source || "Job source")}${job.posted ? ` · ${escapeHtml(job.posted)}` : ""}</p><h4>${escapeHtml(job.title)}</h4><p class="scan-company">${escapeHtml(job.company || "Employer not listed")}${job.location ? ` · ${escapeHtml(job.location)}` : ""}</p></div><span class="scan-priority fit-${match?.fit || "unknown"}">${label}</span></div>${match ? `<p class="scan-terms"><strong>Why:</strong> ${escapeHtml(match.reason || "No reason provided.")}</p>${supported.length ? `<p class="scan-terms"><strong>Your evidence:</strong> ${escapeHtml(supported.join("; "))}</p>` : ""}<p class="scan-terms"><strong>Check:</strong> ${escapeHtml(match.concern || "Confirm the full requirements in the original posting.")}</p>` : `<p class="scan-terms">${job.description ? "AI has not rated this listing." : "A full description is needed for a reliable match estimate."}</p>`}<div class="scan-card-actions"><button class="button button-primary" type="button" data-scan-index="${index}">Review this job</button>${url ? `<a class="button button-secondary" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Original posting</a>` : ""}</div></article>`;
+      return `<article class="scan-card"><div class="scan-card-head"><div><p class="scan-source">${escapeHtml(job.source || "Job source")}${job.posted ? ` · ${escapeHtml(job.posted)}` : ""}</p><h4>${escapeHtml(job.title)}</h4><p class="scan-company">${escapeHtml(job.company || "Employer not listed")}${job.location ? ` · ${escapeHtml(job.location)}` : ""}</p>${job.searchTerm ? `<p class="scan-company">Found through: ${escapeHtml(job.searchTerm)}</p>` : ""}</div><span class="scan-priority fit-${match?.fit || "unknown"}">${label}</span></div>${match ? `<p class="scan-terms"><strong>Why:</strong> ${escapeHtml(match.reason || "No reason provided.")}</p>${supported.length ? `<p class="scan-terms"><strong>Your evidence:</strong> ${escapeHtml(supported.join("; "))}</p>` : ""}<p class="scan-terms"><strong>Check:</strong> ${escapeHtml(match.concern || "Confirm the full requirements in the original posting.")}</p>` : `<p class="scan-terms">${job.description ? "AI has not rated this listing." : "A full description is needed for a reliable match estimate."}</p>`}<div class="scan-card-actions"><button class="button button-primary" type="button" data-scan-index="${index}">Review this job</button>${url ? `<a class="button button-secondary" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Original posting</a>` : ""}</div></article>`;
     }).join("");
   }
 
@@ -508,7 +562,7 @@
     saveState();
     if (view === "fit" && state.evaluation) renderEvaluation();
     if (view === "drafts" && state.drafts) renderDrafts();
-    if (view === "job") { initializeScanForm(); renderScanResults(); renderRoleIdeas(); }
+    if (view === "job") { initializeScanForm(); renderScanResults(); }
     if (view === "tracker") renderTracker();
     updateWorkflowMessage();
     if (announce) {
@@ -529,7 +583,7 @@
       : pendingJobReview
         ? "Review the selected posting, then evaluate it with AI. The earlier fit report belongs to your previous job."
       : !state.evaluation
-        ? "Profile confirmed. Scan and match jobs with AI, explore role ideas, or paste a posting. Review one job, then evaluate it for a full fit report."
+        ? "Profile confirmed. Discover jobs from your experience, search a specific term, or paste a posting. Review one job, then evaluate it for a full fit report."
         : !state.drafts
           ? "Fit report ready. Select Draft with AI to create application documents."
           : "Application draft ready. Review it, then save it to your tracker.";
@@ -716,11 +770,11 @@
     event.preventDefault();
     if (!validateForm(event.currentTarget)) return;
     state.profile = formValues(event.currentTarget);
-    state.roleIdeas = null;
     state.scan = null;
     pendingJobReview = false;
     $("#scanQuery").value = "";
     $("#scanProvince").value = "";
+    delete $("#scanProvince").dataset.initialized;
     $("#scanLanguage").value = "en";
     state.evaluation = null;
     state.drafts = null;
@@ -729,21 +783,19 @@
     showView("job");
   });
 
-  $("#scanForm").addEventListener("submit", async event => {
-    event.preventDefault();
-    const query = $("#scanQuery").value.trim();
-    if (query.length < 2) { setActionError("#scanError", "Enter at least two characters to search for jobs."); $("#scanQuery").focus(); return; }
+  async function beginScan(mode, button) {
     if (!requireAi()) return;
-    const params = { query, province: $("#scanProvince").value, language: $("#scanLanguage").value };
-    const button = $("#scanButton");
     setActionError("#scanError");
     setBusy("#scanStatus", button, true);
+    $("#discoverButton").disabled = true;
+    $("#scanButton").disabled = true;
     try {
-      const response = await fetch("/api/jobs/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "The scan could not finish.");
-      if (!Array.isArray(result.jobs) || !Array.isArray(result.sources)) throw new Error("The job sources returned an invalid result.");
-      state.scan = { ...params, jobs: result.jobs, sources: result.sources, searchedAt: result.searchedAt };
+      $("#scanStatusText").textContent = mode === "profile" ? "Finding search directions from your confirmed experience…" : "Searching public job listings…";
+      const directions = mode === "profile"
+        ? (await planProfileSearchWithAi()).directions
+        : [{ term: $("#scanQuery").value.trim(), reason: "Specific search you entered", evidenceIds: [] }];
+      const result = await searchAllDirections(directions, mode);
+      state.scan = result;
       saveState("Job listings saved");
       updateNavigation();
       renderScanResults();
@@ -758,8 +810,21 @@
       setActionError("#scanError", error.message || "The scan could not finish.");
     } finally {
       setBusy("#scanStatus", button, false);
+      $("#discoverButton").disabled = false;
+      $("#scanButton").disabled = false;
       $("#scanStatusText").textContent = "Searching public job listings…";
     }
+  }
+
+  $("#discoverButton").addEventListener("click", event => beginScan("profile", event.currentTarget));
+  $("#scanForm").addEventListener("submit", event => {
+    event.preventDefault();
+    if ($("#scanQuery").value.trim().length < 2) {
+      setActionError("#scanError", "Enter at least two characters to search for jobs.");
+      $("#scanQuery").focus();
+      return;
+    }
+    beginScan("manual", $("#scanButton"));
   });
 
   $("#matchButton").addEventListener("click", async event => {
@@ -821,39 +886,11 @@
     }
   });
 
-  $("#roleSuggestions").addEventListener("click", event => {
-    const button = event.target.closest("button[data-role-index]");
-    if (!button) return;
-    const title = state.roleIdeas?.suggestions?.[Number(button.dataset.roleIndex)]?.title;
-    if (!title) return;
-    $("#scanQuery").value = title;
-    button.closest("details").open = false;
-    $("#scanQuery").focus();
-    $("#scanForm").scrollIntoView({ behavior: "smooth", block: "start" });
-    showToast("Search title added. Select Scan and match jobs to find listings.");
-  });
-
   $("#jobForm").addEventListener("input", () => {
     if (!state.evaluation && !state.drafts) return;
     pendingJobReview = true;
     updateNavigation();
     updateWorkflowMessage();
-  });
-
-  $("#suggestRolesButton").addEventListener("click", async event => {
-    if (!requireAi()) return;
-    setActionError("#suggestionError");
-    setBusy("#suggestionStatus", event.currentTarget, true);
-    try {
-      state.roleIdeas = await suggestRolesWithAi();
-      saveState("Role ideas saved");
-      renderRoleIdeas();
-      $("#roleSuggestions").focus({ preventScroll: true });
-    } catch (error) {
-      setActionError("#suggestionError", error.message || "Could not suggest roles.");
-    } finally {
-      setBusy("#suggestionStatus", event.currentTarget, false);
-    }
   });
 
   $("#extractProfileButton").addEventListener("click", async event => {

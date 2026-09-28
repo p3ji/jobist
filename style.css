@@ -92,15 +92,13 @@ button { touch-action: manipulation; }
 .scan-section > p { max-width: 70ch; color: var(--muted); font-size: .85rem; }
 .scan-section .form-actions { justify-content: flex-start; }
 .scan-output .scan-results { margin-top: 1rem; }
-.role-helper { margin: 1.1rem 0 1.5rem; padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: #f8faf7; }
-.role-helper summary { color: var(--green-dark); font-weight: 700; cursor: pointer; }
-.role-helper summary:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
-.role-helper > p { margin: .7rem 0; color: var(--muted); font-size: .82rem; }
-.role-ideas { display: grid; gap: .75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-.role-ideas li { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: #f8faf7; }
-.role-ideas p { margin: .25rem 0; font-size: .85rem; }
-.role-ideas small { display: block; color: var(--muted); overflow-wrap: anywhere; }
-.scan-role-button { margin-top: .7rem; min-height: 40px; font-size: .78rem; }
+.manual-search { margin: 1.1rem 0 0; padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: #f8faf7; }
+.manual-search summary { color: var(--green-dark); font-weight: 700; cursor: pointer; }
+.manual-search summary:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
+.manual-search form { margin-top: 1rem; }
+.search-directions { display: grid; gap: .45rem; margin: .4rem 0 1.2rem; padding-left: 1.4rem; font-size: .85rem; }
+.search-directions li { overflow-wrap: anywhere; }
+.search-directions small { display: block; color: var(--muted); }
 .scan-summary { margin: 1.25rem 0 .8rem; color: #35413b; font-size: .86rem; }
 .scan-results { display: grid; gap: .75rem; }
 .scan-card { padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: #f8faf7; }
