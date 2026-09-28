@@ -57,6 +57,8 @@ assert(landing.buttonNames.every(Boolean), "Every button must have an accessible
 const keyHandling = await evaluate(`(() => {
   const testKey = 'test-key-must-never-be-persisted';
   document.querySelector('#providerButton').click();
+  document.querySelector('#providerChoice').value = 'gemini';
+  document.querySelector('#providerChoice').dispatchEvent(new Event('change'));
   document.querySelector('#apiKeyInput').value = testKey;
   document.querySelector('#providerConsent').checked = true;
   document.querySelector('#providerForm').requestSubmit();
@@ -112,6 +114,14 @@ assert(fit.score > 0 && fit.score <= 100, "Fit score should be in range");
 assert.equal(fit.gates, 3);
 assert(fit.strengths > 0 && fit.gaps > 0);
 assert.equal(fit.scrollWidth, 375, "Fit view has horizontal overflow at 375px");
+const mobileDataControls = await evaluate(`({
+  exportVisible: document.querySelector('#exportDataButton').getBoundingClientRect().width > 0,
+  deleteVisible: document.querySelector('#deleteDataButton').getBoundingClientRect().width > 0,
+  scrollWidth: document.documentElement.scrollWidth
+})`);
+assert(mobileDataControls.exportVisible, "Export data must be available at 375px");
+assert(mobileDataControls.deleteVisible, "Delete data must be available at 375px");
+assert(mobileDataControls.scrollWidth <= 375, "Mobile data controls must not cause horizontal overflow");
 
 await evaluate(`(() => {
   window.__aiCalls = 0;
@@ -186,5 +196,14 @@ const tracker = await evaluate(`({
 assert.equal(tracker.cards, 1);
 assert.equal(tracker.saved, 1);
 
-console.log(JSON.stringify({ landing, keyHandling, extraction, fit, aiEvaluation, drafts: { ...drafts, resumeText: "ok", letterText: "ok" }, tracker }, null, 2));
+await evaluate("localStorage.clear(); location.href = 'http://127.0.0.1:8080/?demo=1'");
+await wait(300);
+const demoRoute = await evaluate(`({
+  fitVisible: !document.querySelector('#fitView').classList.contains('is-hidden'),
+  score: Number(document.querySelector('#overallScore').textContent)
+})`);
+assert(demoRoute.fitVisible, "A fresh demo URL should open the fit report");
+assert(demoRoute.score > 0, "The demo URL should render its fit score");
+
+console.log(JSON.stringify({ landing, keyHandling, extraction, fit, mobileDataControls, aiEvaluation, drafts: { ...drafts, resumeText: "ok", letterText: "ok" }, tracker, demoRoute }, null, 2));
 socket.close();

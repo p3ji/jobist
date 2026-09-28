@@ -14,6 +14,15 @@ The deterministic engine is restricted to the clearly labelled example flow.
 
 Run `python server.py` and open `http://localhost:8080`.
 
+## Deployment
+
+The hosted site is `https://jobist.peji.ca/` on Cloudflare Workers. After
+editing browser files, run `python3 scripts/build_hosted.py`, commit the updated
+`dist/` assets, and push `main` to trigger the connected Cloudflare build.
+`npx wrangler deploy` can publish the prepared build directly. The hosted site
+supports Gemini; LM Studio is available only when Jobist runs locally on the
+same computer as the model.
+
 ## Rules
 
 - Mobile-first; must work well at 375px wide.
