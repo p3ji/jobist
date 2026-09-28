@@ -83,13 +83,22 @@ async function handleAi(request) {
   if (schema) Object.assign(generationConfig, { responseMimeType: "application/json", responseSchema: schema });
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey.trim() },
-      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
-      signal: AbortSignal.timeout(120_000),
-    });
-    const raw = await readLimitedText(response.body, MAX_OUTPUT_BYTES);
+    const signal = AbortSignal.timeout(120_000);
+    const requestBody = JSON.stringify({ contents: [{ role: "user", parts }], generationConfig });
+    let response;
+    let raw;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey.trim() },
+        body: requestBody,
+        signal,
+      });
+      raw = await readLimitedText(response.body, MAX_OUTPUT_BYTES);
+      if (response.status !== 503 || attempt === 2) break;
+      await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt + Math.random() * 250));
+    }
+    if (response.status === 503) return jsonResponse(503, { error: "Gemini is busy right now. Try again shortly, or choose another Gemini model in Connect AI. Your document was not extracted." });
     let result;
     try { result = JSON.parse(raw); } catch { return jsonResponse(502, { error: "The AI provider returned an invalid response" }); }
     if (!response.ok) {

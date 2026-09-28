@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import base64
 import io
+import random
 import re
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -243,7 +245,15 @@ class JobistHandler(SimpleHTTPRequestHandler):
         )
 
         try:
-            provider_response = read_json_response(provider_request, timeout=120)
+            for attempt in range(3):
+                try:
+                    provider_response = read_json_response(provider_request, timeout=120)
+                    break
+                except urllib.error.HTTPError as error:
+                    if error.code != 503 or attempt == 2:
+                        raise
+                    error.close()
+                    time.sleep(2 ** attempt + random.random() * 0.25)
             text_parts = [
                 part.get("text", "")
                 for candidate in provider_response.get("candidates", [])
@@ -258,6 +268,9 @@ class JobistHandler(SimpleHTTPRequestHandler):
                 raise ValueError("The AI provider returned the wrong response shape")
             self._json_response(HTTPStatus.OK, {"output": output, "provider": "gemini", "model": model})
         except urllib.error.HTTPError as error:
+            if error.code == 503:
+                self._json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Gemini is busy right now. Try again shortly, or choose another Gemini model in Connect AI. Your document was not extracted."})
+                return
             try:
                 detail = json.loads(error.read()).get("error", {}).get("message", "Provider request failed")
             except (json.JSONDecodeError, UnicodeDecodeError):

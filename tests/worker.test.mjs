@@ -64,3 +64,21 @@ test("Gemini proxy forwards a PDF as inline document data", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Gemini proxy retries a temporary model overload", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return calls === 1
+      ? Response.json({ error: { message: "high demand" } }, { status: 503 })
+      : Response.json({ candidates: [{ content: { parts: [{ text: "OK" }] } }] });
+  };
+  try {
+    const response = await worker.fetch(post({ provider: "gemini", apiKey: "synthetic-key", model: "gemini-3.8-flash", prompt: "Hello" }), env);
+    assert.equal(response.status, 200);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
