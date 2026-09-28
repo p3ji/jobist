@@ -4,6 +4,8 @@ main = "cloudflare/worker.mjs"
 compatibility_date = "2026-09-27"
 workers_dev = true
 
+preview_urls = true
+
 [vars]
 BILLING_ENABLED = "false"
 MONETIZATION_ENFORCED = "false"
@@ -13,6 +15,7 @@ STRIPE_TEST_PRICE_ID = "price_1UKisfDS4HQRiHjB9C5GgYJ0"
 [[routes]]
 pattern = "jobist.peji.ca"
 custom_domain = true
+zone_name = "peji.ca"
 
 [assets]
 directory = "./dist"
@@ -28,3 +31,8 @@ secret_name = "GEMINI_API_KEY"
 binding = "COHERE_API_KEY"
 store_id = "2be9e32136e64085bbc8245b245a1244"
 secret_name = "COHERE_API_KEY"
+
+[[secrets_store_secrets]]
+binding = "GROQ_API_KEY"
+store_id = "2be9e32136e64085bbc8245b245a1244"
+secret_name = "GROQ_API_KEY"

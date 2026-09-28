@@ -244,9 +244,11 @@ export default {
     if (url.pathname === "/api/ai/config" && request.method === "GET") {
       const defaultGemini = await resolveSecret(env, "GEMINI_API_KEY", "GOOGLE_API_KEY");
       const defaultCohere = await resolveSecret(env, "COHERE_API_KEY");
+      const defaultGroq = await resolveSecret(env, "GROQ_API_KEY");
       return jsonResponse(200, {
         defaultGeminiAvailable: env?.MONETIZATION_ENFORCED !== "true" && Boolean(defaultGemini && defaultGemini.length >= 10),
         defaultCohereAvailable: env?.MONETIZATION_ENFORCED !== "true" && Boolean(defaultCohere && defaultCohere.length >= 10),
+        defaultGroqAvailable: env?.MONETIZATION_ENFORCED !== "true" && Boolean(defaultGroq && defaultGroq.length >= 10),
         defaultModel: "gemini-2.5-flash",
         billingEnabled: env?.BILLING_ENABLED === "true" && Boolean(env.DB && env.TURNSTILE_SITE_KEY),
         checkoutTestEnabled: env?.BILLING_ENABLED === "true" && env?.CHECKOUT_TEST_ENABLED === "true",
