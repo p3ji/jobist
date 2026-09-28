@@ -41,6 +41,8 @@ python3 server.py
 ```
 
 Then visit `http://localhost:8080`.
+On a Mac, you can instead double-click `Start Jobist.command` in this folder;
+keep its window open while using the local server.
 
 Open `http://localhost:8080/?demo=1` to jump directly into an example fit
 report.
@@ -83,13 +85,18 @@ Then choose one of the models Jobist lists. Jobist and LM Studio must run on
 the same computer. This local option cannot be reached from a remotely hosted
 Jobist site through a visitor's `localhost`.
 
-Local document extraction currently reads `.txt`, `.md`, and `.docx`. For PDF
+Local document extraction currently reads `.txt`, `.md`, `.tex`, and `.docx`. A
+`.tex` file is read as source text; files referenced with `\\input` are not
+loaded. For PDF
 or legacy `.doc`, enter facts in the profile form or use Gemini. Always review
 extracted facts before confirming them. A local model can still produce errors;
 Jobist blocks drafts with uncited claims or changed dates and numbers, and you
 must review the rest of the text.
 
-For **Gemini**, enter your API key. Jobist does not save it in local storage or
+For **Gemini**, enter your API key. Jobist checks the connection before moving
+to the profile step. Choose a file and select **Extract facts with AI**; simply
+connecting the key or choosing a file does not start extraction. `.tex`, `.md`,
+and `.txt` files are sent as text. Jobist does not save the key in local storage or
 logs. The browser sends it to the local Jobist proxy for each request, and the
 proxy forwards the request to Google without storing either. Switching
 providers is explicit; a failed request is never silently sent elsewhere.
