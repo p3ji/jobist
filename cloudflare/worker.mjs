@@ -1,5 +1,5 @@
 // Hosted Jobist: same-origin static assets and an ephemeral Gemini adapter.
-import { getJobBankDetail, scanJobs } from "./job-search.mjs";
+import { getJobBankDetail, getJobDetail, scanJobs } from "./job-search.mjs";
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MODEL_PATTERN = /^gemini-[a-z0-9.-]+$/;
@@ -55,7 +55,7 @@ function matchesSchema(value, schema, depth = 0) {
   return true;
 }
 
-async function handleAi(request) {
+async function handleAi(request, env) {
   const origin = request.headers.get("Origin");
   if (origin && origin !== new URL(request.url).origin) return jsonResponse(403, { error: "Cross-origin requests are not allowed" });
   const contentLength = Number(request.headers.get("Content-Length"));
@@ -71,8 +71,10 @@ async function handleAi(request) {
   const provider = body.provider || (new URL(request.url).pathname === "/api/gemini" ? "gemini" : null);
   if (provider === "local") return jsonResponse(400, { error: "Local AI is available when Jobist runs on the same computer as LM Studio" });
   if (provider !== "gemini") return jsonResponse(400, { error: "Choose an AI provider" });
-  const { apiKey, model, prompt, schema, file } = body;
-  if (typeof apiKey !== "string" || apiKey.trim().length < 10) return jsonResponse(400, { error: "A valid Gemini API key is required" });
+  const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim().length >= 10) ? body.apiKey.trim() : (env?.GEMINI_API_KEY || "").trim();
+  const model = (typeof body.model === "string" && body.model.trim()) ? body.model.trim() : "gemini-3.5-flash-lite";
+  const { prompt, schema, file } = body;
+  if (!apiKey || apiKey.length < 10) return jsonResponse(400, { error: "A valid Gemini API key is required" });
   if (typeof model !== "string" || model.length > 200 || !MODEL_PATTERN.test(model)) return jsonResponse(400, { error: "Unsupported model name" });
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 100_000) return jsonResponse(400, { error: "A prompt is required" });
   if (schema != null && (typeof schema !== "object" || Array.isArray(schema) || JSON.stringify(schema).length > 30_000)) return jsonResponse(400, { error: "Invalid output schema" });
@@ -124,10 +126,50 @@ async function handleJobSearch(request, detail = false) {
   try { body = JSON.parse(await readLimitedText(request.body, 8_192)); }
   catch { return jsonResponse(400, { error: "Invalid job search request" }); }
   try {
-    const result = detail ? await getJobBankDetail(body?.id, body?.language) : await scanJobs(body);
+    const result = detail ? await getJobDetail(body?.id, body?.language, body?.source) : await scanJobs(body);
     return jsonResponse(200, result);
   } catch (error) {
     return jsonResponse(error instanceof RangeError ? 400 : 502, { error: error.message || "Job search failed" });
+  }
+}
+
+async function handleJobRerank(request, env) {
+  const origin = request.headers.get("Origin");
+  if (origin && origin !== new URL(request.url).origin) return jsonResponse(403, { error: "Cross-origin requests are not allowed" });
+  const apiKey = (env?.COHERE_API_KEY || "").trim();
+  if (!apiKey) return jsonResponse(200, { available: false, results: [] });
+
+  let body;
+  try { body = JSON.parse(await readLimitedText(request.body, 65_536)); }
+  catch { return jsonResponse(400, { error: "Invalid rerank request" }); }
+
+  const query = typeof body?.query === "string" ? body.query.trim() : "";
+  const documents = Array.isArray(body?.documents) ? body.documents.filter(d => typeof d === "string" && d.trim()) : [];
+  if (!query || !documents.length) return jsonResponse(400, { error: "A query and documents are required" });
+
+  try {
+    const signal = AbortSignal.timeout(10_000);
+    const cohereResponse = await fetch("https://api.cohere.com/v2/rerank", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "rerank-v3.5",
+        query: query.slice(0, 2000),
+        documents: documents.slice(0, 50).map(d => d.slice(0, 2000)),
+        top_n: Math.min(documents.length, 25),
+      }),
+      signal,
+    });
+    if (!cohereResponse.ok) {
+      return jsonResponse(200, { available: false, error: "Cohere rerank failed" });
+    }
+    const data = await cohereResponse.json();
+    return jsonResponse(200, { available: true, results: data?.results || [] });
+  } catch {
+    return jsonResponse(200, { available: false, error: "Cohere unreachable" });
   }
 }
 
@@ -135,13 +177,24 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/local-models" && request.method === "GET") return jsonResponse(200, { available: false, models: [] });
+    if (url.pathname === "/api/ai/config" && request.method === "GET") {
+      return jsonResponse(200, {
+        defaultGeminiAvailable: Boolean(env?.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length >= 10),
+        defaultCohereAvailable: Boolean(env?.COHERE_API_KEY && env.COHERE_API_KEY.trim().length >= 10),
+        defaultModel: "gemini-3.5-flash-lite",
+      });
+    }
     if (["/api/jobs/scan", "/api/jobs/detail"].includes(url.pathname)) {
       if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
       return handleJobSearch(request, url.pathname.endsWith("/detail"));
     }
+    if (url.pathname === "/api/jobs/rerank") {
+      if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
+      return handleJobRerank(request, env);
+    }
     if (["/api/ai", "/api/gemini"].includes(url.pathname)) {
       if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
-      return handleAi(request);
+      return handleAi(request, env);
     }
     if (url.pathname.startsWith("/api/")) return jsonResponse(404, { error: "Not found" });
     if (!["GET", "HEAD"].includes(request.method)) return jsonResponse(405, { error: "Method not allowed" });

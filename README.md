@@ -18,7 +18,7 @@ The intended GUI journey follows the source project's three stages:
 
 | Stage | Available now | Still to build |
 | --- | --- | --- |
-| Profile | Guided form and one document at a time for AI fact extraction; the user edits and confirms the result. | Combine multiple sources such as a CV, LinkedIn export, diplomas, references, and past applications; paste a CV as a dedicated import path; guided profile interview; source records for each fact. |
+| Profile | Upload several documents or choose a folder, paste one CV, answer a four-step guided interview, or type directly. AI extracts facts from supported files into a reviewable form. Additional documents add new facts; repeated files are skipped by checksum. Education has its own field, and conflicting details are shown for comparison. | Detailed source spans for each fact and automatic import from external accounts. |
 | Find jobs | AI plans several search directions from confirmed work and skills, including transferable functions outside known titles. Jobist searches Job Bank and Freehire, then gives up to 15 readable postings a quick AI High/Medium/Low match estimate. A specific keyword search remains available. The candidate can also paste a posting. | Add more portals, broader search strategies, and source health monitoring. |
 | Prepare application | AI fit report with gates, tailored résumé and cover-letter drafts, a separate review pass, editable output, print/save as PDF, and a local tracker. | Fuller document formatting and export checks comparable to the source framework. Sending or submitting remains a user action outside Jobist. |
 
@@ -41,7 +41,8 @@ Select one job and get the full fit report before drafting an application.
 
 This is the first working slice of that journey. The scan covers two public
 Canadian sources; it does not yet reproduce the source project's full `/scrape`
-portal coverage or all three `/setup` intake paths.
+portal coverage. A browser cannot read a local `documents/` folder without the
+user choosing it, so Jobist offers a folder picker on desktop.
 
 This vertical slice is deliberately dependency-free. Personal workspace data
 stays in browser local storage. Users can select a local LM Studio model or
@@ -105,22 +106,27 @@ Then choose one of the models Jobist lists. Jobist and LM Studio must run on
 the same computer. This local option cannot be reached from a remotely hosted
 Jobist site through a visitor's `localhost`.
 
-Local document extraction currently reads `.txt`, `.md`, `.tex`, and `.docx`. A
-`.tex` file is read as source text; files referenced with `\\input` are not
-loaded. For PDF
-or legacy `.doc`, enter facts in the profile form or use Gemini. Always review
+Local document extraction currently reads PDF, Word (.docx), `.txt`, `.md`, `.tex`, and `.csv`. A
+`.tex` file is read as source text; files referenced with `\input` are not
+loaded. For legacy `.doc`, enter facts in the profile form or use Gemini. Always review
 extracted facts before confirming them. A local model can still produce errors;
 Jobist blocks drafts with uncited claims or changed dates and numbers, and you
 must review the rest of the text.
 
-For **Gemini**, enter your API key. Jobist checks the connection before moving
-to the profile step. Choose a file and select **Extract facts with AI**; simply
-connecting the key or choosing a file does not start extraction. `.tex`, `.md`,
-and `.txt` files are sent as text. Jobist does not save the key in local storage or
-logs. The browser sends it to the local Jobist proxy for each request, and the
-proxy forwards the request to Google without storing either. Switching
-providers is explicit; a failed request is never silently sent elsewhere.
+For **Gemini**, Jobist defaults to **Gemini 3.5 Flash-Lite** for fast, high-throughput
+free-tier usage. When running on a server or hosted site where `GEMINI_API_KEY` is
+configured (e.g. Cloudflare Worker secrets or local environment), Jobist works
+immediately out of the box with the default Free Tier. You can also enter your own
+API key in Connect AI to use personal quota. Choose files and select **Read documents with AI**;
+simply connecting the key or choosing files does not start extraction. `.tex`, `.md`,
+`.txt`, and `.csv` files are sent as text, while PDFs are forwarded natively. Jobist does
+not save keys in local storage or logs.
 
-Google's own data-use and retention terms still apply. A user-supplied API key
-does not by itself provide zero data retention; the user's plan and enabled
-Gemini features determine Google's handling.
+For **Job search ranking**, Jobist optionally uses **Cohere Rerank** (`rerank-v3.5`)
+when `COHERE_API_KEY` is configured, providing deep semantic relevance scoring across
+scraped job leads. If unconfigured, Jobist smoothly falls back to its built-in keyword priority.
+
+Google's and Cohere's own data-use and retention terms apply to external API requests.
+A user-supplied or default API key does not by itself provide zero data retention; the
+provider's plan and enabled features determine upstream handling.
+

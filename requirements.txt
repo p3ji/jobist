@@ -1,0 +1,4 @@
+# Optional dependencies for Jobist
+# The Python server is dependency-free by default on macOS (using native Spotlight mdimport)
+# and pure-Python fallbacks. Installing pypdf enables robust PDF parsing on all platforms (Linux/Windows/macOS).
+pypdf>=5.0.0

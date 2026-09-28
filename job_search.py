@@ -145,6 +145,90 @@ def search_freehire(query: str) -> list[dict]:
     return jobs
 
 
+def parse_eluta_cards(markup: str) -> list[dict]:
+    cards = []
+    pattern = r"<div\b[^>]*data-url=[\"']spl/([^\"\'?#]+)(?:\?[^\"\']*)?[\"'][^>]*>([\s\S]*?)(?=<div\b[^>]*data-url=[\"']spl/|<div\b[^>]*id=[\"']pagination[\"']|<footer\b|$)"
+    for match in re.finditer(pattern, markup, re.I):
+        slug, chunk = match.groups()
+        if "organic-job" not in match.group(0):
+            continue
+        id_match = re.search(r"-([0-9a-f]{20,40})$", slug)
+        job_id = id_match.group(1) if id_match else slug
+        title_m = re.search(r"<a\b[^>]*class=[\"'][^\"']*\blk-job-title\b[^\"']*[\"'][^>]*>([\s\S]*?)</a>", chunk, re.I)
+        title = clean_text(title_m.group(1)) if title_m else ""
+        if not title:
+            continue
+        comp_m = re.search(r"<a\b[^>]*class=[\"'][^\"']*\blk-employer\b[^\"']*[\"'][^>]*>([\s\S]*?)</a>", chunk, re.I)
+        comp = clean_text(comp_m.group(1)) if comp_m else ""
+        loc_m = re.search(r"<span\b[^>]*class=[\"'][^\"']*\blocation\b[^\"']*[\"'][^>]*>\s*<span>([\s\S]*?)</span>", chunk, re.I)
+        loc = clean_text(loc_m.group(1)) if loc_m else ""
+        date_m = re.search(r"<a\b[^>]*class=[\"'][^\"']*\blastseen\b[^\"']*[\"'][^>]*>([\s\S]*?)</a>", chunk, re.I)
+        date = clean_text(date_m.group(1)) if date_m else ""
+        cards.append({
+            "id": f"eluta-{job_id}",
+            "source": "Eluta",
+            "title": title,
+            "company": comp,
+            "location": loc,
+            "posted": date,
+            "url": f"https://www.eluta.ca/spl/job-{job_id}",
+            "description": "",
+            "detailId": job_id,
+            "detailLang": "",
+        })
+    return cards[:25]
+
+
+def parse_eluta_detail(markup: str, posting_id: str) -> dict:
+    clean_id = str(posting_id).replace("eluta-", "")
+    if not re.fullmatch(r"[0-9a-f]{20,40}", clean_id):
+        raise ValueError("Choose a valid Eluta posting")
+    title_m = re.search(r"<h1\b[^>]*itemprop=[\"']title[\"'][^>]*>([\s\S]*?)</h1>", markup, re.I)
+    title = clean_text(title_m.group(1)) if title_m else ""
+    if not title:
+        m = re.search(r"<meta\b[^>]*itemprop=[\"']title[\"'][^>]*content=[\"']([^\"']*)[\"']", markup, re.I)
+        title = clean_text(m.group(1)) if m else ""
+
+    comp_m = re.search(r"<[^>]+itemprop=[\"']hiringOrganization[\"'][^>]*>([\s\S]*?)</[^>]+>", markup, re.I)
+    comp = ""
+    if comp_m:
+        name_m = re.search(r"<span\b[^>]*itemprop=[\"']name[\"'][^>]*>([\s\S]*?)</span>", comp_m.group(1), re.I)
+        comp = clean_text(name_m.group(1)) if name_m else clean_text(comp_m.group(1))
+
+    loc_m = re.search(r"<meta\b[^>]*itemprop=[\"']addressLocality[\"'][^>]*content=[\"']([^\"']*)[\"']", markup, re.I)
+    locality = clean_text(loc_m.group(1)) if loc_m else ""
+    reg_m = re.search(r"<meta\b[^>]*itemprop=[\"']addressRegion[\"'][^>]*content=[\"']([^\"']*)[\"']", markup, re.I)
+    region = clean_text(reg_m.group(1)) if reg_m else ""
+    location = ", ".join(p for p in (locality, region) if p)
+
+    desc_m = re.search(r"<div\b[^>]*itemprop=[\"']description[\"'][^>]*>([\s\S]*?)(?=<div\b[^>]*class=[\"'][^\"']*(?:bottom|footer|related)[\"']|<footer\b|$)", markup, re.I)
+    desc = clean_text(desc_m.group(1)) if desc_m else ""
+
+    return {
+        "title": title,
+        "company": comp,
+        "jobLocation": location,
+        "description": desc[:40_000],
+        "url": f"https://www.eluta.ca/spl/job-{clean_id}",
+    }
+
+
+def search_eluta(query: str, location: str = "") -> list[dict]:
+    params = {"q": query}
+    if location:
+        params["l"] = location
+    markup = source_text(f"https://www.eluta.ca/search?{urlencode(params)}", "text/html")
+    return parse_eluta_cards(markup)
+
+
+def get_eluta_detail(posting_id: str) -> dict:
+    clean_id = str(posting_id).replace("eluta-", "")
+    if not re.fullmatch(r"[0-9a-f]{20,40}", clean_id):
+        raise ValueError("Choose a valid Eluta posting")
+    markup = source_text(f"https://www.eluta.ca/spl/job-{clean_id}", "text/html")
+    return parse_eluta_detail(markup, clean_id)
+
+
 def scan_jobs(body: dict) -> dict:
     query = " ".join(str(body.get("query") or "").split())
     province = str(body.get("province") or "").upper()
@@ -155,7 +239,10 @@ def scan_jobs(body: dict) -> dict:
         raise ValueError("Choose a valid province or all Canada")
     if language not in {"en", "fr", "both"}:
         raise ValueError("Choose a valid search language")
-    calls = [("Freehire", search_freehire, (query,))]
+    calls = [
+        ("Freehire", search_freehire, (query,)),
+        ("Eluta", search_eluta, (query, province)),
+    ]
     if language in {"fr", "both"}:
         calls.append(("Guichet-Emplois", search_job_bank, (query, province, "fr")))
     if language in {"en", "both"}:
@@ -184,3 +271,11 @@ def get_job_bank_detail(posting_id: str, language: str) -> dict:
         raise ValueError("Choose a valid Job Bank posting")
     markup = job_bank_text(f"{JOB_BANK_HOSTS[language]}/jobsearch/jobposting/{posting_id}")
     return parse_job_bank_detail(markup, posting_id, language)
+
+
+def get_job_detail(posting_id: str, language: str = "en", source: str = "") -> dict:
+    source_lower = str(source or "").lower()
+    posting_str = str(posting_id or "")
+    if source_lower == "eluta" or posting_str.startswith("eluta-") or re.fullmatch(r"[0-9a-f]{20,40}", posting_str):
+        return get_eluta_detail(posting_str)
+    return get_job_bank_detail(posting_str, language)

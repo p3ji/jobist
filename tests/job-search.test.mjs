@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseJobBankCards, parseJobBankDetail, scanJobs } from "../cloudflare/job-search.mjs";
+import { getJobDetail, parseElutaCards, parseElutaDetail, parseJobBankCards, parseJobBankDetail, scanJobs } from "../cloudflare/job-search.mjs";
 
 const listing = `<div id="results-count">1</div><article id="article-50365933"><span class="noctitle">Project coordinator</span><ul><li class="business">Example employer</li><li class="location">Ottawa, ON</li><li class="date">September 27, 2026</li></ul></article>`;
 
@@ -14,6 +14,22 @@ test("Job Bank listing and detail preserve source facts", () => {
   assert.equal(detail.jobLocation, "Ottawa, Ontario");
 });
 
+test("Eluta listing and detail preserve source facts", () => {
+  const markup = '<div data-url="spl/senior-developer-4bba68aea4fe671a81ce9f217f36e23b" class="organic-job"><a class="lk-job-title">Senior Developer</a><a class="employer lk-employer">Acme Corp</a><span class="location"><span>Toronto, ON</span></span><a class="lk lastseen">2 days ago</a></div>';
+  const [job] = parseElutaCards(markup);
+  assert.equal(job.title, "Senior Developer");
+  assert.equal(job.company, "Acme Corp");
+  assert.equal(job.location, "Toronto, ON");
+  assert.equal(job.detailId, "4bba68aea4fe671a81ce9f217f36e23b");
+
+  const detailMarkup = '<h1 itemprop="title">Senior Developer</h1><div itemprop="hiringOrganization"><span itemprop="name">Acme Corp</span></div><meta itemprop="addressLocality" content="Toronto" /><meta itemprop="addressRegion" content="ON" /><div itemprop="description"><p>Build scalable backend systems.</p></div>';
+  const detail = parseElutaDetail(detailMarkup, "4bba68aea4fe671a81ce9f217f36e23b");
+  assert.equal(detail.title, "Senior Developer");
+  assert.equal(detail.company, "Acme Corp");
+  assert.equal(detail.jobLocation, "Toronto, ON");
+  assert.equal(detail.description, "Build scalable backend systems.");
+});
+
 test("scan combines live sources and reports a partial outage", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async url => String(url).startsWith("https://freehire.me/")
@@ -23,7 +39,7 @@ test("scan combines live sources and reports a partial outage", async () => {
     const result = await scanJobs({ query: "project coordinator", language: "en" });
     assert.equal(result.jobs.length, 1);
     assert.equal(result.jobs[0].description, "Coordinate projects.");
-    assert.deepEqual(result.sources.map(source => source.ok), [true, false]);
+    assert.deepEqual(result.sources.map(source => source.ok), [true, false, false]);
   } finally {
     globalThis.fetch = originalFetch;
   }

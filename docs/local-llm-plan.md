@@ -1,6 +1,7 @@
 # Local AI option for Jobist
 
 Status: LM Studio provider selection and the core proxy are implemented.
+See [Free Tier API & Local LLM Integration Plan](free-tier-and-local-llm-plan.md) for the active expansion plan including free-tier cloud defaults, Cohere semantic reranking, and local PDF extraction.
 Remaining work is listed below, especially PDF extraction, stronger grounding
 checks, and a complete browser regression suite.
 

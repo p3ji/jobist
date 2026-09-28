@@ -127,6 +127,71 @@ async function searchFreehire(query) {
   })).filter(job => job.title && job.url);
 }
 
+export function parseElutaCards(html) {
+  const jobs = [];
+  const pattern = /<div\b[^>]*data-url=["']spl\/([^"'?#]+)(?:\?[^"']*)?["'][^>]*>([\s\S]*?)(?=<div\b[^>]*data-url=["']spl\/|<div\b[^>]*id=["']pagination["']|<footer\b|$)/gi;
+  for (const match of html.matchAll(pattern)) {
+    const slug = match[1];
+    const chunk = match[2];
+    if (!match[0].includes("organic-job")) continue;
+    const idMatch = slug.match(/-([0-9a-f]{20,40})$/);
+    const id = idMatch ? idMatch[1] : slug;
+    const titleMatch = chunk.match(/<a\b[^>]*class=["'][^"']*\blk-job-title\b[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
+    const title = titleMatch ? cleanText(titleMatch[1]) : "";
+    if (!title) continue;
+    const compMatch = chunk.match(/<a\b[^>]*class=["'][^"']*\blk-employer\b[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
+    const company = compMatch ? cleanText(compMatch[1]) : "";
+    const locMatch = chunk.match(/<span\b[^>]*class=["'][^"']*\blocation\b[^"']*["'][^>]*>\s*<span>([\s\S]*?)<\/span>/i);
+    const location = locMatch ? cleanText(locMatch[1]) : "";
+    const dateMatch = chunk.match(/<a\b[^>]*class=["'][^"']*\blastseen\b[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
+    const posted = dateMatch ? cleanText(dateMatch[1]) : "";
+    jobs.push({
+      id: `eluta-${id}`, source: "Eluta", title, company, location, posted,
+      url: `https://www.eluta.ca/spl/job-${id}`, description: "", detailId: id, detailLang: "",
+    });
+  }
+  return jobs.slice(0, 25);
+}
+
+export function parseElutaDetail(html, id) {
+  const cleanId = String(id || "").replace(/^eluta-/, "");
+  if (!/^[0-9a-f]{20,40}$/i.test(cleanId)) throw new RangeError("Invalid Eluta posting");
+  const titleMatch = html.match(/<h1\b[^>]*itemprop=["']title["'][^>]*>([\s\S]*?)<\/h1>/i);
+  let title = titleMatch ? cleanText(titleMatch[1]) : "";
+  if (!title) {
+    const m = html.match(/<meta\b[^>]*itemprop=["']title["'][^>]*content=["']([^"']*)["']/i);
+    title = m ? cleanText(m[1]) : "";
+  }
+  const compBlock = html.match(/<[^>]+itemprop=["']hiringOrganization["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  let company = "";
+  if (compBlock) {
+    const nameMatch = compBlock[1].match(/<span\b[^>]*itemprop=["']name["'][^>]*>([\s\S]*?)<\/span>/i);
+    company = cleanText(nameMatch ? nameMatch[1] : compBlock[1]);
+  }
+  const locMatch = html.match(/<meta\b[^>]*itemprop=["']addressLocality["'][^>]*content=["']([^"']*)["']/i);
+  const locality = locMatch ? cleanText(locMatch[1]) : "";
+  const regMatch = html.match(/<meta\b[^>]*itemprop=["']addressRegion["'][^>]*content=["']([^"']*)["']/i);
+  const region = regMatch ? cleanText(regMatch[1]) : "";
+  const jobLocation = [locality, region].filter(Boolean).join(", ");
+  const descMatch = html.match(/<div\b[^>]*itemprop=["']description["'][^>]*>([\s\S]*?)(?=<div\b[^>]*class=["'][^"']*(?:bottom|footer|related)["']|<footer\b|$)/i);
+  const description = descMatch ? cleanText(descMatch[1]).slice(0, 40_000) : "";
+  return { title, company, jobLocation, description, url: `https://www.eluta.ca/spl/job-${cleanId}` };
+}
+
+async function searchEluta(query, location) {
+  const params = new URLSearchParams({ q: query });
+  if (location) params.set("l", location);
+  const html = await fetchSource(`https://www.eluta.ca/search?${params}`, "text/html");
+  return parseElutaCards(html);
+}
+
+export async function getElutaDetail(id) {
+  const cleanId = String(id || "").replace(/^eluta-/, "");
+  if (!/^[0-9a-f]{20,40}$/i.test(cleanId)) throw new RangeError("Invalid Eluta posting");
+  const html = await fetchSource(`https://www.eluta.ca/spl/job-${cleanId}`, "text/html");
+  return parseElutaDetail(html, cleanId);
+}
+
 export async function scanJobs(input) {
   const query = String(input?.query || "").trim().replace(/\s+/g, " ");
   const province = String(input?.province || "").toUpperCase();
@@ -136,6 +201,7 @@ export async function scanJobs(input) {
   if (!["en", "fr", "both"].includes(language)) throw new RangeError("Choose a valid search language");
   const sources = [
     { name: "Freehire", task: searchFreehire(query) },
+    { name: "Eluta", task: searchEluta(query, province) },
     ...(language === "fr" || language === "both" ? [{ name: "Guichet-Emplois", task: searchJobBank(query, province, "fr") }] : []),
     ...(language === "en" || language === "both" ? [{ name: "Job Bank", task: searchJobBank(query, province, "en") }] : []),
   ];
@@ -161,4 +227,13 @@ export async function getJobBankDetail(id, lang) {
   if (!/^\d{4,12}$/.test(String(id)) || !JOB_BANK_HOSTS[lang]) throw new RangeError("Choose a valid Job Bank posting");
   const html = await fetchJobBank(`${JOB_BANK_HOSTS[lang]}/jobsearch/jobposting/${id}`);
   return parseJobBankDetail(html, id, lang);
+}
+
+export async function getJobDetail(id, lang, source) {
+  const src = String(source || "").toLowerCase();
+  const postingId = String(id || "");
+  if (src === "eluta" || postingId.startsWith("eluta-") || /^[0-9a-f]{20,40}$/i.test(postingId)) {
+    return getElutaDetail(postingId);
+  }
+  return getJobBankDetail(postingId, lang);
 }

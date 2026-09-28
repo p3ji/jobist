@@ -111,3 +111,72 @@ test("Gemini overload message applies to any AI action", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Gemini proxy uses worker secret when client provides no API key", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return Response.json({ candidates: [{ content: { parts: [{ text: "OK" }] } }] });
+  };
+  try {
+    const envWithSecret = { ...env, GEMINI_API_KEY: "worker-secret-gemini-key" };
+    const response = await worker.fetch(post({ provider: "gemini", prompt: "Hello" }), envWithSecret);
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].options.headers["x-goog-api-key"], "worker-secret-gemini-key");
+    assert.match(calls[0].url, /gemini-3\.5-flash-lite/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("/api/ai/config returns available default secrets and model", async () => {
+  const envWithSecrets = { ...env, GEMINI_API_KEY: "secret-gemini-key", COHERE_API_KEY: "secret-cohere-key" };
+  const response = await worker.fetch(new Request(`${site}/api/ai/config`), envWithSecrets);
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.defaultGeminiAvailable, true);
+  assert.equal(data.defaultCohereAvailable, true);
+  assert.equal(data.defaultModel, "gemini-3.5-flash-lite");
+
+  const responseEmpty = await worker.fetch(new Request(`${site}/api/ai/config`), env);
+  const dataEmpty = await responseEmpty.json();
+  assert.equal(dataEmpty.defaultGeminiAvailable, false);
+  assert.equal(dataEmpty.defaultCohereAvailable, false);
+});
+
+test("/api/jobs/rerank returns available false when no key is set", async () => {
+  const request = new Request(`${site}/api/jobs/rerank`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: site },
+    body: JSON.stringify({ query: "operations coordinator", documents: ["doc 1", "doc 2"] }),
+  });
+  const response = await worker.fetch(request, env);
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.available, false);
+});
+
+test("/api/jobs/rerank calls Cohere when COHERE_API_KEY is present", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return Response.json({ results: [{ index: 1, relevance_score: 0.95 }, { index: 0, relevance_score: 0.6 }] });
+  };
+  try {
+    const envWithCohere = { ...env, COHERE_API_KEY: "test-cohere-key" };
+    const request = new Request(`${site}/api/jobs/rerank`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: site },
+      body: JSON.stringify({ query: "operations coordinator", documents: ["doc 1", "doc 2"] }),
+    });
+    const response = await worker.fetch(request, envWithCohere);
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.available, true);
+    assert.equal(data.results.length, 2);
+    assert.equal(calls[0].options.headers["Authorization"], "Bearer test-cohere-key");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

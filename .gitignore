@@ -3,3 +3,7 @@
 __pycache__/
 *.pyc
 .wrangler/
+.env
+.env.*
+test_cases/
+test_profiles/
