@@ -242,6 +242,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .recommendation { margin-top: 1rem; padding: 1.6rem; display: flex; gap: 1.2rem; justify-content: space-between; align-items: center; border-radius: var(--radius); background: var(--ink); color: white; }
 .recommendation h3, .recommendation p { margin: 0; }
 .recommendation p:not(.eyebrow) { margin-top: .35rem; color: #c7cfcb; }
+.posting-action { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.posting-action .button { max-width: 100%; white-space: normal; text-align: center; }
+.posting-action p { margin: .6rem 0 0; color: var(--muted); font-size: .85rem; }
 
 .document-actions { display: flex; gap: .6rem; flex-wrap: wrap; justify-content: flex-end; }
 .document-tabs { display: flex; gap: .2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
@@ -254,6 +257,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .document-page h2 { margin: 1.5rem 0 .6rem; padding-bottom: .28rem; border-bottom: 1px solid #9da59f; color: var(--green-dark); font-size: .9rem; text-transform: uppercase; letter-spacing: .09em; }
 .document-page h3 { margin: .9rem 0 .15rem; font-size: .95rem; }
 .document-page p, .document-page li { font-size: .79rem; line-height: 1.5; }
+.document-page.guidance-page { min-height: 0; }
+.document-page.guidance-page p, .document-page.guidance-page li { font-size: .92rem; line-height: 1.6; }
 .document-page ul { padding-left: 1.2rem; }
 .document-page sup { display: inline-grid; place-items: center; width: 17px; height: 17px; margin-left: .25rem; border-radius: 50%; background: var(--green-soft); color: var(--green-dark); font-size: .58rem; font-weight: 700; cursor: help; }
 .document-page.letter p { font-size: .88rem; line-height: 1.65; }
@@ -344,7 +349,7 @@ dialog::backdrop { background: rgba(20,29,25,.55); backdrop-filter: blur(4px); }
 
 @media print {
   body { background: white; }
-  .topbar, .sidebar, .demo-banner, .view-heading, .document-tabs, .edit-note, #letterPanel.is-hidden, #resumePanel.is-hidden { display: none !important; }
+  .topbar, .sidebar, .demo-banner, .view-heading, .document-tabs, .edit-note, .posting-action, #letterPanel.is-hidden, #resumePanel.is-hidden { display: none !important; }
   .app-shell, .workspace, .view, .document-shell { display: block !important; margin: 0; padding: 0; background: white; }
   .view:not(#draftsView) { display: none !important; }
   .document-page { width: 100%; min-height: 0; padding: 0; box-shadow: none; }

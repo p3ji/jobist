@@ -160,6 +160,7 @@ await evaluate(`(() => {
     return new Response(JSON.stringify({output,model:'gemini-3.8-flash'}), {status:200,headers:{'Content-Type':'application/json'}});
   };
   document.querySelector('[data-view=job]').click();
+  document.querySelector('#jobForm [name=url]').value = 'https://example.org/jobs/project-coordinator';
   document.querySelector('#jobForm').requestSubmit();
 })()`);
 await wait(300);
@@ -171,6 +172,7 @@ const aiEvaluation = await evaluate(`({
 assert(aiEvaluation.visible, "AI evaluation should open the fit report");
 assert.equal(aiEvaluation.score, 82);
 assert.equal(aiEvaluation.calls, 1, "Evaluation should use one AI request");
+assert.equal(await evaluate("document.querySelector('#fitPostingAction a')?.href"), "https://example.org/jobs/project-coordinator", "Fit report should link to the original posting");
 
 await evaluate("document.querySelector('#generateButton').click()");
 await wait(350);
@@ -183,8 +185,10 @@ const drafts = await evaluate(`({
   aiCalls: window.__aiCalls
 })`);
 assert(drafts.visible, "Draft workspace should open");
-assert.match(drafts.resumeText, /Maya Chen/);
+assert.match(drafts.resumeText, /Résumé suggestions/);
+assert.match(drafts.resumeText, /revise your existing résumé/);
 assert.match(drafts.letterText, /Cedar Public Services/);
+assert.equal(await evaluate("document.querySelector('#draftPostingAction a')?.href"), "https://example.org/jobs/project-coordinator", "Application guidance should link to the original posting");
 assert(drafts.evidenceCount > 0, "Résumé claims should carry evidence markers");
 assert(drafts.stored, "Drafts should persist locally");
 assert.equal(drafts.aiCalls, 3, "Application generation should use separate drafter and reviewer requests");
@@ -197,6 +201,7 @@ const tracker = await evaluate(`({
 })`);
 assert.equal(tracker.cards, 1);
 assert.equal(tracker.saved, 1);
+assert.equal(await evaluate("document.querySelector('.tracker-card a')?.href"), "https://example.org/jobs/project-coordinator", "Tracker should retain the original posting link");
 
 await evaluate("localStorage.clear(); location.href = 'http://127.0.0.1:8080/?demo=1'");
 await wait(300);
