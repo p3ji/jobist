@@ -160,8 +160,12 @@ test("Playwright E2E Suite: Jobist live application", async (t) => {
     const dialog = page.locator("#providerDialog");
     assert.equal(await dialog.isVisible(), true);
 
-    // Select Gemini
-    await page.selectOption("#providerChoice", "gemini");
+    // Select a personal Gemini key
+    assert.deepEqual(await page.locator("#providerChoice option").allTextContents(), [
+      "Jobist Free Tier (Gemini 2.5 Flash)", "Bring your own API key (supported providers)", "Local AI (on this computer)",
+    ]);
+    await page.selectOption("#providerChoice", "own");
+    await page.selectOption("#ownProviderChoice", "gemini");
     assert.equal(await page.locator("#geminiFields").isVisible(), true);
     assert.equal(await page.locator("#apiKeyInput").isVisible(), true);
 

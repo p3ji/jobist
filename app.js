@@ -1716,24 +1716,21 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
 
   const providerDialog = $("#providerDialog");
   const localAiSupported = ["localhost", "127.0.0.1"].includes(location.hostname);
-  $("#providerChoice option[value=qwen]").disabled = localAiSupported;
+  $("#ownProviderChoice option[value=qwen]").disabled = localAiSupported;
   if (!localAiSupported) {
-    $("#providerChoice").value = "gemini";
-    $("#localFields").classList.add("is-hidden");
-    $("#geminiFields").classList.remove("is-hidden");
-    $("#providerIntro").textContent = "Choose Jobist's Gemini connection, your own Gemini or Qwen key, or see how to run a local model. Connecting alone does not start an analysis.";
+    $("#providerIntro").textContent = "Use Jobist's Gemini Free Tier, bring your own API key, or see how to run a local model. Connecting alone does not start an analysis.";
     $("#uploadHelp").textContent = "Choose up to 12 PDF, Word, TXT, MD, TEX, or CSV files, 10 MB each. Select Read documents with AI to fill the reviewable profile below. LaTeX included files are not loaded.";
   }
   async function refreshLocalModels() {
     const status = $("#localStatus");
     const select = $("#localModelInput");
-    status.textContent = "Checking for LM Studio…";
+    status.textContent = "Checking for a local model server…";
     select.replaceChildren();
     try {
       const response = await fetch("/api/local-models");
       const result = await response.json();
       if (!result.available || !result.models?.length) {
-        status.textContent = result.available ? "No generation models found. Load a model in LM Studio." : "LM Studio is offline. Start its local server on 127.0.0.1:1234, then reopen this dialog.";
+        status.textContent = result.available ? "No generation models found. Load a model in your local server." : "No compatible local model server was found at 127.0.0.1:1234. Start one, then reopen this dialog.";
         return;
       }
       const placeholder = new Option("Choose a local model", "", true, true);
@@ -1772,7 +1769,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
         ? `${loadedCount} ${loadedCount === 1 ? "model" : "models"} loaded in RAM (${result.models.length} total on disk).`
         : `${result.models.length} local ${result.models.length === 1 ? "model" : "models"} available.`;
     } catch {
-      status.textContent = "Could not check LM Studio. Start Jobist's local server and try again.";
+      status.textContent = "Could not check the local model server. Make sure Jobist and your model server are running on this computer.";
     }
   }
   async function checkServerAiConfig() {
@@ -1795,6 +1792,10 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
         }
       }
     } catch { /* Server offline or unconfigured */ }
+    const freeOption = $("#providerChoice option[value=free]");
+    freeOption.disabled = !serverAiConfig.defaultGeminiAvailable;
+    if (freeOption.disabled && $("#providerChoice").value === "free") $("#providerChoice").value = "own";
+    if (providerDialog.open) updateProviderFields();
   }
 
   const accountDialog = $("#accountDialog");
@@ -1914,14 +1915,16 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
   function updateProviderFields() {
     const choice = $("#providerChoice").value;
     const local = choice === "local";
+    const own = choice === "own";
+    $("#freeFields").classList.toggle("is-hidden", choice !== "free");
+    $("#ownFields").classList.toggle("is-hidden", !own);
     $("#localFields").classList.toggle("is-hidden", !local);
-    $("#geminiFields").classList.toggle("is-hidden", choice !== "gemini");
-    $("#qwenFields").classList.toggle("is-hidden", choice !== "qwen");
+    $("#geminiFields").classList.toggle("is-hidden", !own || $("#ownProviderChoice").value !== "gemini");
+    $("#qwenFields").classList.toggle("is-hidden", !own || $("#ownProviderChoice").value !== "qwen");
     $("#localSetup").classList.toggle("is-hidden", !localAiSupported);
     $("#hostedLocalSetup").classList.toggle("is-hidden", localAiSupported);
     $("#providerSubmit").classList.toggle("is-hidden", local && !localAiSupported);
-    const defaultHint = $("#defaultKeyHint");
-    if (defaultHint) defaultHint.classList.toggle("is-hidden", !serverAiConfig.defaultGeminiAvailable);
+    $("#providerSubmit").textContent = choice === "free" ? "Use Jobist Free Tier" : "Check connection and continue";
     setActionError("#providerError");
     if (local && localAiSupported) refreshLocalModels();
   }
@@ -1932,8 +1935,8 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       ? (aiSession.provider === "local" ? "Local AI active" : aiSession.provider === "qwen" ? "Qwen connected" : aiSession.isDefaultKey ? "Free Tier active" : "Gemini connected")
       : "Connect AI";
     $("#modeBanner").innerHTML = connected
-      ? `<strong>${aiSession.provider === "local" ? "Local AI active" : aiSession.provider === "qwen" ? "Qwen connected" : aiSession.isDefaultKey ? "Gemini Free Tier active" : "Gemini connected"}</strong><span>Job matching, fit evaluation, and drafting use ${escapeHtml(aiSession.model)}.${aiSession.provider === "gemini" ? (aiSession.isDefaultKey ? " Default free-tier API active." : " Your key is not saved.") : aiSession.provider === "qwen" ? " Your key stays in this tab; Alibaba Cloud may charge you. Paste document text for extraction." : " LM Studio must remain running on this computer."}</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Change model</button>`
-      : `<strong>AI not connected</strong><span>${localAiSupported ? "Choose Local AI or connect Gemini" : "Connect Gemini or Qwen"} to extract facts, match jobs, and prepare applications.</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Connect</button>`;
+      ? `<strong>${aiSession.provider === "local" ? "Local AI active" : aiSession.provider === "qwen" ? "Qwen connected" : aiSession.isDefaultKey ? "Gemini Free Tier active" : "Gemini connected"}</strong><span>Job matching, fit evaluation, and drafting use ${escapeHtml(aiSession.model)}.${aiSession.provider === "gemini" ? (aiSession.isDefaultKey ? " Default free-tier API active." : " Your key is not saved.") : aiSession.provider === "qwen" ? " Your key stays in this tab; Alibaba Cloud may charge you. Paste document text for extraction." : " Your local model server must remain running on this computer."}</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Change model</button>`
+      : `<strong>AI not connected</strong><span>${localAiSupported ? "Choose Jobist Gemini Free Tier or a local model" : "Choose Jobist Gemini Free Tier, use your own key, or see local setup"} to extract facts, match jobs, and prepare applications.</span> <button class="button button-secondary banner-switch-btn" type="button" id="bannerSwitchAiBtn">Connect</button>`;
     $("#bannerSwitchAiBtn")?.addEventListener("click", () => {
       providerDialog.showModal();
       updateProviderFields();
@@ -1946,15 +1949,24 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     updateProviderFields();
   });
   $("#providerChoice").addEventListener("change", updateProviderFields);
+  $("#ownProviderChoice").addEventListener("change", updateProviderFields);
   $(".dialog-close", providerDialog).addEventListener("click", () => providerDialog.close());
   $("#providerForm").addEventListener("submit", async event => {
     event.preventDefault();
-    const provider = $("#providerChoice").value;
+    const mode = $("#providerChoice").value;
+    const provider = mode === "own" ? $("#ownProviderChoice").value : mode;
     setActionError("#providerError");
-    if (provider === "local") {
+    if (mode === "free") {
+      if (serverConfigPromise) { try { await serverConfigPromise; } catch {} }
+      if (!serverAiConfig.defaultGeminiAvailable) {
+        setActionError("#providerError", "Jobist Free Tier is unavailable on this server. Bring your own API key or use Local AI.");
+        return;
+      }
+      Object.assign(aiSession, { provider: "gemini", apiKey: "", isDefaultKey: true, model: "gemini-2.5-flash" });
+    } else if (provider === "local") {
       if (!localAiSupported) return;
       const model = $("#localModelInput").value;
-      if (!model) { setActionError("#providerError", "Start LM Studio and choose a local model first."); return; }
+      if (!model) { setActionError("#providerError", "Start a compatible local model server and choose a model first."); return; }
       const selected = { provider: "local", apiKey: "", isDefaultKey: false, model };
       const submit = $("#providerSubmit");
       submit.disabled = true;
@@ -1962,7 +1974,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       try {
         await callAi({ prompt: "Reply with OK.", session: selected });
       } catch (error) {
-        setActionError("#providerError", `Local model check failed: ${error.message || "Model could not respond. Try another loaded model in LM Studio."}`);
+        setActionError("#providerError", `Local model check failed: ${error.message || "Model could not respond. Try another loaded local model."}`);
         return;
       } finally {
         submit.disabled = false;
@@ -1970,7 +1982,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
       }
       Object.assign(aiSession, selected);
     } else if (provider === "qwen") {
-      if (localAiSupported) { setActionError("#providerError", "Use LM Studio for local models, or open the hosted site for Qwen."); return; }
+      if (localAiSupported) { setActionError("#providerError", "Qwen API keys are supported on the hosted site. Local models use your computer instead."); return; }
       const key = $("#qwenKeyInput").value.trim();
       const region = $("#qwenRegionInput").value;
       if (key.length < 10 || !$("#qwenConsent").checked) {
@@ -1989,34 +2001,25 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     } else {
       const enteredKey = $("#apiKeyInput").value.trim();
       const model = $("#modelInput").value || "gemini-2.5-flash";
-      if (!enteredKey && serverAiConfig.defaultGeminiAvailable) {
-        aiSession.provider = "gemini";
-        aiSession.apiKey = "";
-        aiSession.isDefaultKey = true;
-        aiSession.model = model;
-      } else {
-        if (enteredKey.length < 10 || !$("#providerConsent").checked) {
-          setActionError("#providerError", serverAiConfig.defaultGeminiAvailable
-            ? "Enter a valid Gemini key or clear it to use the default Free Tier."
-            : "Enter your Gemini key and confirm data sharing.");
-          $("#apiKeyInput").focus();
-          return;
-        }
-        const selected = { provider: "gemini", apiKey: enteredKey, model, isDefaultKey: false };
-        const submit = $("#providerSubmit");
-        submit.disabled = true;
-        submit.textContent = "Checking Gemini connection…";
-        try {
-          await callAi({ prompt: "Reply with OK.", session: selected });
-        } catch (error) {
-          setActionError("#providerError", `Gemini connection failed: ${error.message || "Try again."}`);
-          return;
-        } finally {
-          submit.disabled = false;
-          submit.textContent = "Check connection and continue";
-        }
-        Object.assign(aiSession, selected);
+      if (enteredKey.length < 10 || !$("#providerConsent").checked) {
+        setActionError("#providerError", "Enter your Gemini key and confirm data sharing.");
+        $("#apiKeyInput").focus();
+        return;
       }
+      const selected = { provider: "gemini", apiKey: enteredKey, model, isDefaultKey: false };
+      const submit = $("#providerSubmit");
+      submit.disabled = true;
+      submit.textContent = "Checking Gemini connection…";
+      try {
+        await callAi({ prompt: "Reply with OK.", session: selected });
+      } catch (error) {
+        setActionError("#providerError", `Gemini connection failed: ${error.message || "Try again."}`);
+        return;
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Check connection and continue";
+      }
+      Object.assign(aiSession, selected);
     }
     $("#apiKeyInput").value = "";
     $("#qwenKeyInput").value = "";

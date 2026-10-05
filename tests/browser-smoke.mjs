@@ -57,7 +57,7 @@ assert(landing.buttonNames.every(Boolean), "Every button must have an accessible
 const keyHandling = await evaluate(`(() => {
   const testKey = 'test-key-must-never-be-persisted';
   document.querySelector('#providerButton').click();
-  document.querySelector('#providerChoice').value = 'gemini';
+  document.querySelector('#providerChoice').value = 'own';
   document.querySelector('#providerChoice').dispatchEvent(new Event('change'));
   document.querySelector('#apiKeyInput').value = testKey;
   document.querySelector('#providerConsent').checked = true;

@@ -759,7 +759,7 @@ class JobistHandler(SimpleHTTPRequestHandler):
         try:
             available = local_models()
             if available and model not in available:
-                self._json_response(HTTPStatus.BAD_REQUEST, {"error": f"Model '{model}' is not currently available in LM Studio"})
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": f"Model '{model}' is not currently available from the local model server"})
                 return
             if file_data is not None:
                 try:
@@ -803,7 +803,7 @@ class JobistHandler(SimpleHTTPRequestHandler):
                 pass
             self._json_response(HTTPStatus.BAD_GATEWAY, {"error": detail[:500]})
         except (urllib.error.URLError, TimeoutError):
-            self._json_response(HTTPStatus.BAD_GATEWAY, {"error": "LM Studio is unavailable. Start its local server on 127.0.0.1:1234 and try again"})
+            self._json_response(HTTPStatus.BAD_GATEWAY, {"error": "The local model server is unavailable. Start an OpenAI-compatible server on 127.0.0.1:1234 and try again"})
         except (ValueError, UnicodeDecodeError, KeyError, IndexError) as error:
             self._json_response(HTTPStatus.BAD_GATEWAY, {"error": f"Local AI error: {str(error)[:250]}"})
         except Exception as error:
