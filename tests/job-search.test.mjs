@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getJobDetail, parseElutaCards, parseElutaDetail, parseJobBankCards, parseJobBankDetail, scanJobs } from "../cloudflare/job-search.mjs";
+import { getJobDetail, parseElutaCards, parseElutaDetail, parseJobBankCards, parseJobBankDetail, parseLinkedinCards, parseLinkedinDetail, scanJobs } from "../cloudflare/job-search.mjs";
 
 const listing = `<div id="results-count">1</div><article id="article-50365933"><span class="noctitle">Project coordinator</span><ul><li class="business">Example employer</li><li class="location">Ottawa, ON</li><li class="date">September 27, 2026</li></ul></article>`;
 
@@ -30,6 +30,24 @@ test("Eluta listing and detail preserve source facts", () => {
   assert.equal(detail.description, "Build scalable backend systems.");
 });
 
+test("LinkedIn listing and detail preserve source facts", () => {
+  const markup = '<ul><li data-entity-urn="urn:li:jobPosting:4467453169"><a class="base-card__full-link" href="https://ca.linkedin.com/jobs/view/pharmacist-at-pharmasave-4467453169?utm=x">x</a><h3 class="base-search-card__title">Pharmacist &amp; Associate</h3><h4 class="base-search-card__subtitle"><a href="/company/pharmasave">Pharmasave Canada</a></h4><span class="job-search-card__location">Calgary, Alberta, Canada</span><time class="job-search-card__listdate" datetime="2026-10-01">Oct 1</time></li></ul>';
+  const [job] = parseLinkedinCards(markup);
+  assert.equal(job.title, "Pharmacist & Associate");
+  assert.equal(job.company, "Pharmasave Canada");
+  assert.equal(job.location, "Calgary, Alberta, Canada");
+  assert.equal(job.detailId, "4467453169");
+  assert.equal(job.source, "LinkedIn");
+  assert.ok(job.url.startsWith("https://ca.linkedin.com/jobs/view/"));
+
+  const detailMarkup = '<h2 class="top-card-layout__title">Pharmacist &amp; Associate</h2><a class="topcard__org-name-link" href="/company/pharmasave">Pharmasave Canada</a><span class="topcard__flavor topcard__flavor--bullet">Calgary, Alberta, Canada</span><div class="show-more-less-html__markup"><p>Dispense prescriptions.</p></div>';
+  const detail = parseLinkedinDetail(detailMarkup, "4467453169");
+  assert.equal(detail.title, "Pharmacist & Associate");
+  assert.equal(detail.company, "Pharmasave Canada");
+  assert.equal(detail.jobLocation, "Calgary, Alberta, Canada");
+  assert.ok(detail.description.includes("Dispense prescriptions."));
+});
+
 test("scan combines live sources and reports a partial outage", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async url => String(url).startsWith("https://freehire.me/")
@@ -39,7 +57,8 @@ test("scan combines live sources and reports a partial outage", async () => {
     const result = await scanJobs({ query: "project coordinator", language: "en" });
     assert.equal(result.jobs.length, 1);
     assert.equal(result.jobs[0].description, "Coordinate projects.");
-    assert.deepEqual(result.sources.map(source => source.ok), [true, false, false]);
+    // Sources are Freehire, Eluta, LinkedIn, Job Bank (en).
+    assert.deepEqual(result.sources.map(source => source.ok), [true, false, false, false]);
   } finally {
     globalThis.fetch = originalFetch;
   }

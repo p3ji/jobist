@@ -97,9 +97,9 @@ async function responseText(response) {
   }
 }
 
-async function fetchSource(url, accept) {
+async function fetchSource(url, accept, userAgent) {
   const response = await fetch(url, {
-    headers: { Accept: accept, "Accept-Language": "en-CA,en;q=0.9,fr-CA;q=0.8", "User-Agent": "Jobist/0.3 (+https://jobist.peji.ca)" },
+    headers: { Accept: accept, "Accept-Language": "en-CA,en;q=0.9,fr-CA;q=0.8", "User-Agent": userAgent || "Jobist/0.3 (+https://jobist.peji.ca)" },
     signal: AbortSignal.timeout(18_000),
   });
   if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
@@ -241,18 +241,136 @@ export function parseElutaDetail(html, id) {
   return { title, company, jobLocation, description, url: `https://www.eluta.ca/spl/job-${cleanId}` };
 }
 
+// Eluta's WAF serves degraded (card-less) pages to some datacenter IPs and
+// fingerprints TLS clients; a browser User-Agent is the most reliable ask we can make from Workers.
+const ELUTA_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
 async function searchEluta(query, location) {
   const params = new URLSearchParams({ q: query });
   if (location) params.set("l", location);
-  const html = await fetchSource(`https://www.eluta.ca/search?${params}`, "text/html");
+  let html;
+  try {
+    html = await fetchSource(`https://www.eluta.ca/search?${params}`, "text/html", ELUTA_USER_AGENT);
+  } catch (error) {
+    // Retry once with the default UA in case the WAF rejects browser-like clients.
+    html = await fetchSource(`https://www.eluta.ca/search?${params}`, "text/html");
+  }
+  if (!html.includes('data-url="spl/') && !html.includes("job-count")) {
+    throw new Error("Eluta returned no readable results page");
+  }
   return parseElutaCards(html);
 }
 
 export async function getElutaDetail(id) {
   const cleanId = String(id || "").replace(/^eluta-/, "");
   if (!/^[0-9a-f]{20,40}$/i.test(cleanId)) throw new RangeError("Invalid Eluta posting");
-  const html = await fetchSource(`https://www.eluta.ca/spl/job-${cleanId}`, "text/html");
+  const html = await fetchSource(`https://www.eluta.ca/spl/job-${cleanId}`, "text/html", ELUTA_USER_AGENT);
   return parseElutaDetail(html, cleanId);
+}
+
+// LinkedIn's public guest endpoints need no authentication. Search returns 10
+// cards per page; detail serves a single posting's HTML. The X-Requested-With
+// header mirrors the site's own client and keeps responses stable from Workers.
+const LINKEDIN_SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search";
+const LINKEDIN_DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting";
+
+async function fetchLinkedin(url) {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "User-Agent": "Mozilla/5.0 (compatible; linkedin-search-cli/1.0)",
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    signal: AbortSignal.timeout(18_000),
+  });
+  if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
+  return responseText(response);
+}
+
+export function parseLinkedinCards(html) {
+  const jobs = [];
+  const seenIds = new Set();
+  for (const chunk of html.split('data-entity-urn="urn:li:jobPosting:').slice(1)) {
+    const idMatch = chunk.match(/^(\d+)/);
+    if (!idMatch || seenIds.has(idMatch[1])) continue;
+    const jobId = idMatch[1];
+    const linkMatch = chunk.match(/class="base-card__full-link[^"]*"[^>]*href="([^"]+)"/i);
+    const url = linkMatch ? decodeHtmlEntities(linkMatch[1]).split("?")[0] : "";
+    let title = cleanText(chunk.match(/class="base-search-card__title[^"]*">([\s\S]*?)<\/h3>/i)?.[1]);
+    if (!title) title = cleanText(chunk.match(/class="sr-only"[^>]*>([\s\S]*?)<\/span>/i)?.[1]);
+    if (!title) continue;
+    const company = cleanText(chunk.match(/class="base-search-card__subtitle[^"]*">([\s\S]*?)<\/h4>/i)?.[1]);
+    const location = cleanText(chunk.match(/class="job-search-card__location[^"]*">([\s\S]*?)<\/span>/i)?.[1]);
+    const dateMatch = chunk.match(/class="job-search-card__listdate[^"]*"[^>]*datetime="([^"]+)"/i);
+    seenIds.add(jobId);
+    jobs.push({
+      id: `linkedin-${jobId}`, source: "LinkedIn", title: title.slice(0, 200), company: company.slice(0, 160),
+      location: location.slice(0, 160), posted: dateMatch ? dateMatch[1].slice(0, 10) : "",
+      url: url || `https://www.linkedin.com/jobs/view/${jobId}`, description: "", detailId: jobId, detailLang: "",
+    });
+  }
+  return jobs;
+}
+
+async function searchLinkedin(query, province = "", city = "") {
+  const location = city || (PROVINCE_FULL_NAMES[province] || "Canada");
+  const params = new URLSearchParams({ keywords: query, location });
+  // Two pages of 10 cards each, fetched concurrently to keep scan latency low.
+  const settled = await Promise.allSettled([0, 10].map(start => fetchLinkedin(`${LINKEDIN_SEARCH_URL}?${params}&start=${start}`)));
+  const jobs = [];
+  const seenIds = new Set();
+  let failures = 0;
+  for (const result of settled) {
+    if (result.status !== "fulfilled") { failures += 1; continue; }
+    for (const job of parseLinkedinCards(result.value)) {
+      if (!seenIds.has(job.detailId)) {
+        seenIds.add(job.detailId);
+        jobs.push(job);
+      }
+    }
+  }
+  // A single failed page is a partial result; every page failing means the
+  // source is down, so throw and let scanJobs mark it unavailable.
+  if (failures === settled.length) throw new Error("LinkedIn search pages were unreachable");
+  return jobs.slice(0, 25);
+}
+
+function extractDivContent(html, className) {
+  const openRe = new RegExp(`<div[^>]*class="[^"]*${className.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^"]*"[^>]*>`, "i");
+  const open = openRe.exec(html);
+  if (!open) return null;
+  let i = open.index + open[0].length;
+  let depth = 1;
+  while (depth > 0 && i < html.length) {
+    const nextOpen = html.indexOf("<div", i);
+    const nextClose = html.indexOf("</div>", i);
+    if (nextClose === -1) return null;
+    if (nextOpen !== -1 && nextOpen < nextClose) { depth += 1; i = nextOpen + 4; } else { depth -= 1; i = nextClose + 6; }
+  }
+  return html.slice(open.index + open[0].length, i - 6);
+}
+
+function decodeHtmlEntities(text) {
+  return String(text || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => { const cp = Number.parseInt(hex, 16); return Number.isInteger(cp) && cp <= 0x10ffff ? String.fromCodePoint(cp) : " "; })
+    .replace(/&#(\d+);/g, (_, dec) => { const cp = Number.parseInt(dec, 10); return Number.isInteger(cp) && cp <= 0x10ffff ? String.fromCodePoint(cp) : " "; })
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&");
+}
+
+export function parseLinkedinDetail(html, id) {
+  const title = cleanText(html.match(/class="(?:top-card-layout__title|topcard__title)[^"]*"[^>]*>([\s\S]*?)<\/h[12]>/i)?.[1]);
+  const company = cleanText(html.match(/class="topcard__org-name-link[^"]*"[^>]*href="[^"]+"[^>]*>([\s\S]*?)<\/a>/i)?.[1]);
+  const location = cleanText(html.match(/class="topcard__flavor topcard__flavor--bullet"[^>]*>([\s\S]*?)<\/span>/i)?.[1]);
+  const descHtml = extractDivContent(html, "show-more-less-html__markup") ?? extractDivContent(html, "description__text");
+  return { title, company, jobLocation: location, description: descHtml ? cleanText(descHtml).slice(0, 40_000) : "", url: `https://www.linkedin.com/jobs/view/${id}` };
+}
+
+export async function getLinkedinDetail(id) {
+  const cleanId = String(id || "").replace(/^linkedin-/, "");
+  if (!/^\d{6,12}$/.test(cleanId)) throw new RangeError("Invalid LinkedIn posting");
+  return parseLinkedinDetail(await fetchLinkedin(`${LINKEDIN_DETAIL_URL}/${cleanId}`), cleanId);
 }
 
 export async function scanJobs(input) {
@@ -267,6 +385,7 @@ export async function scanJobs(input) {
   const sources = [
     { name: "Freehire", task: searchFreehire(query, province, city) },
     { name: "Eluta", task: searchEluta(query, elutaLocation) },
+    { name: "LinkedIn", task: searchLinkedin(query, province, city) },
     ...(language === "fr" || language === "both" ? [{ name: "Guichet-Emplois", task: searchJobBank(query, province, "fr", city) }] : []),
     ...(language === "en" || language === "both" ? [{ name: "Job Bank", task: searchJobBank(query, province, "en", city) }] : []),
   ];
@@ -309,6 +428,9 @@ export async function getJobBankDetail(id, lang) {
 export async function getJobDetail(id, lang, source) {
   const src = String(source || "").toLowerCase();
   const postingId = String(id || "");
+  if (src === "linkedin" || postingId.startsWith("linkedin-")) {
+    return getLinkedinDetail(postingId);
+  }
   if (src === "eluta" || postingId.startsWith("eluta-") || /^[0-9a-f]{20,40}$/i.test(postingId)) {
     return getElutaDetail(postingId);
   }

@@ -31,6 +31,11 @@
     properties: { directions: { type: "array", items: { type: "object", properties: { term: { type: "string" }, reason: { type: "string" }, evidenceIds: { type: "array", items: { type: "integer" } } }, required: ["term", "reason", "evidenceIds"] } } },
     required: ["directions"],
   };
+  const QUERY_VARIANTS_SCHEMA = {
+    type: "object",
+    properties: { variants: { type: "array", items: { type: "object", properties: { term: { type: "string" }, reason: { type: "string" } }, required: ["term"] } } },
+    required: ["variants"],
+  };
   const QUICK_MATCH_SCHEMA = {
     type: "object",
     properties: { matches: { type: "array", items: { type: "object", properties: {
@@ -491,6 +496,27 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     return { directions, provider: session.provider, model: session.model };
   }
 
+  // Targeted searches used to send one exact-match string to every portal, which
+  // misses postings that use different titles for the same function (the gap vs.
+  // function-based multi-query discovery). Expand into a few short variants; if
+  // the AI step fails we still search the user's original keyword verbatim.
+  async function expandTargetedQueryWithAi(term) {
+    const session = { ...aiSession };
+    const prompt = `The candidate entered this job-board search term: "${term}". Create up to three short Canadian job-board search queries that would find real postings for the same work, even when employers use different titles. Keep the user's original term first and unchanged. Each variant must be 2-5 words, plausible as a real posting title or function (for example "AI solutions architect" may expand to "machine learning engineer", "applied AI developer", "data science lead"), and must not invent seniority levels, industries, credentials, or locations the user did not provide. If the term is already broad enough that variants would be redundant, return only the original term. For each variant give a one-line reason linking it to the work described by the original term.`;
+    const result = await callAi({ prompt, schema: QUERY_VARIANTS_SCHEMA, session });
+    const seen = new Set([term.toLowerCase()]);
+    const variants = (Array.isArray(result.variants) ? result.variants : []).map(item => ({
+      term: String(item?.term || "").trim().replace(/\s+/g, " ").slice(0, 120),
+      reason: String(item?.reason || "").trim().slice(0, 240),
+    })).filter(item => {
+      const key = item.term.toLowerCase();
+      if (item.term.length < 2 || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 3);
+    return [{ term, reason: "Specific search you entered", evidenceIds: [] }, ...variants];
+  }
+
   function setProfileMode(mode) {
     const isUpload = mode === "upload";
     const isInterview = mode === "interview";
@@ -736,7 +762,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
           if (!url || !job.title) continue;
           const key = url.replace(/[?#].*$/, "").replace(/\/$/, "").toLowerCase();
           if (seen.has(key)) continue;
-          const cap = mode === "profile" ? (job.source === "Freehire" ? 10 : job.source === "Eluta" ? 8 : 4) : 25;
+          const cap = mode === "profile" ? ((job.source === "Freehire" || job.source === "LinkedIn") ? 10 : job.source === "Eluta" ? 8 : 4) : 25;
           if ((perSource[job.source] || 0) >= cap) continue;
           perSource[job.source] = (perSource[job.source] || 0) + 1;
           seen.add(key);
@@ -1323,10 +1349,22 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     $("#discoverButton").disabled = true;
     $("#scanButton").disabled = true;
     try {
-      $("#scanStatusText").textContent = mode === "profile" ? "Finding search directions from your confirmed experience…" : "Searching public job listings…";
-      const directions = mode === "profile"
-        ? (await planProfileSearchWithAi()).directions
-        : [{ term: $("#scanQuery").value.trim(), reason: "Specific search you entered", evidenceIds: [] }];
+      let directions;
+      if (mode === "profile") {
+        $("#scanStatusText").textContent = "Finding search directions from your confirmed experience…";
+        directions = (await planProfileSearchWithAi()).directions;
+      } else {
+        const term = $("#scanQuery").value.trim();
+        try {
+          $("#scanStatusText").textContent = `Expanding “${term}” into related job titles…`;
+          directions = await expandTargetedQueryWithAi(term);
+        } catch {
+          // The AI expansion is an enhancement, not a requirement: if it fails we
+          // still run the user's original keyword verbatim against every portal.
+          $("#scanStatusText").textContent = "Searching public job listings…";
+          directions = [{ term, reason: "Specific search you entered", evidenceIds: [] }];
+        }
+      }
       const result = await searchAllDirections(directions, mode);
       state.scan = result;
       saveState("Job listings saved");
@@ -1439,7 +1477,7 @@ The user reviews and confirms every extracted fact before it becomes evidence.${
     try {
       let detail = job;
       if (job.detailId && !job.description) {
-        const response = await fetch("/api/jobs/detail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.detailId, language: job.detailLang }) });
+        const response = await fetch("/api/jobs/detail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.detailId, language: job.detailLang, source: job.source }) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "The posting could not be loaded.");
         detail = { ...job, ...result };

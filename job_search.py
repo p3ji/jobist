@@ -9,8 +9,11 @@ from __future__ import annotations
 import html
 import json
 import re
+import ssl
+import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -97,14 +100,44 @@ def clean_text(markup: object) -> str:
     return re.sub(r"\n{3,}", "\n\n", value).strip()
 
 
+def _curl_fetch(url: str, accept: str) -> str:
+    """Fallback fetch for hosts whose WAF rejects Python's TLS fingerprint.
+
+    Eluta.ca aborts the handshake (SSLV3_ALERT_HANDSHAKE_FAILURE) for urllib's
+    ClientHello but serves curl normally. Uses a browser User-Agent and the same
+    size cap as source_text; raises ValueError on non-200 or oversized bodies.
+    """
+    command = [
+        "curl", "-sS", "--fail", "--max-time", "18",
+        "-H", f"Accept: {accept}",
+        "-H", "Accept-Language: en-CA,en;q=0.9,fr-CA;q=0.8",
+        "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "--max-filesize", str(MAX_SOURCE_BYTES + 1),
+        url,
+    ]
+    try:
+        proc = subprocess.run(command, capture_output=True, timeout=25)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"curl fallback unavailable for {url}") from exc
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", errors="replace")[:200]
+        raise ValueError(f"Source fetch failed (curl exit {proc.returncode}): {detail}")
+    return proc.stdout.decode("utf-8", errors="replace")
+
+
 def source_text(url: str, accept: str) -> str:
     request = urllib.request.Request(url, headers={
         "Accept": accept,
         "Accept-Language": "en-CA,en;q=0.9,fr-CA;q=0.8",
         "User-Agent": "Jobist/0.3 (+https://jobist.peji.ca)",
     })
-    with urllib.request.urlopen(request, timeout=18) as response:
-        content = response.read(MAX_SOURCE_BYTES + 1)
+    try:
+        with urllib.request.urlopen(request, timeout=18) as response:
+            content = response.read(MAX_SOURCE_BYTES + 1)
+    except (urllib.error.URLError, ssl.SSLError):
+        # WAFs that fingerprint the TLS ClientHello reject Python's handshake;
+        # retry once through curl before giving up.
+        return _curl_fetch(url, accept)
     if len(content) > MAX_SOURCE_BYTES:
         raise ValueError("The job source returned too much data")
     return content.decode("utf-8", errors="replace")
@@ -286,6 +319,11 @@ def search_eluta(query: str, location: str = "") -> list[dict]:
     if location:
         params["l"] = location
     markup = source_text(f"https://www.eluta.ca/search?{urlencode(params)}", "text/html")
+    # A real results page always carries either organic cards or a job-count
+    # line. Neither means the WAF served degraded content (observed from
+    # datacenter IPs) — surface it as a source failure, not an empty result set.
+    if 'data-url="spl/' not in markup and "job-count" not in markup:
+        raise ValueError("Eluta returned no readable results page")
     return parse_eluta_cards(markup)
 
 
@@ -295,6 +333,143 @@ def get_eluta_detail(posting_id: str) -> dict:
         raise ValueError("Choose a valid Eluta posting")
     markup = source_text(f"https://www.eluta.ca/spl/job-{clean_id}", "text/html")
     return parse_eluta_detail(markup, clean_id)
+
+
+# LinkedIn's public guest endpoints need no authentication. The search endpoint
+# returns 10 cards per page; the detail endpoint serves a single posting's HTML.
+LINKEDIN_SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+LINKEDIN_DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting"
+LINKEDIN_USER_AGENT = "Mozilla/5.0 (compatible; linkedin-search-cli/1.0)"
+
+
+def _linkedin_fetch(url: str) -> str:
+    request = urllib.request.Request(url, headers={
+        "User-Agent": LINKEDIN_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-Requested-With": "XMLHttpRequest",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=18) as response:
+            content = response.read(MAX_SOURCE_BYTES + 1)
+    except (urllib.error.URLError, ssl.SSLError):
+        return _curl_fetch(url, "text/html")
+    if len(content) > MAX_SOURCE_BYTES:
+        raise ValueError("The job source returned too much data")
+    return content.decode("utf-8", errors="replace")
+
+
+def parse_linkedin_cards(markup: str) -> list[dict]:
+    cards = []
+    seen_ids = set()
+    for chunk in markup.split('data-entity-urn="urn:li:jobPosting:')[1:]:
+        id_match = re.match(r"(\d+)", chunk)
+        if not id_match:
+            continue
+        job_id = id_match.group(1)
+        if job_id in seen_ids:
+            continue
+        link_m = re.search(r'class="base-card__full-link[^"]*"[^>]*href="([^"]+)"', chunk, re.I)
+        url = html.unescape(link_m.group(1)).split("?")[0] if link_m else ""
+        title_m = re.search(r'class="base-search-card__title[^"]*">([\s\S]*?)</h3>', chunk, re.I)
+        title = clean_text(title_m.group(1)) if title_m else ""
+        if not title:
+            sr_m = re.search(r'class="sr-only"[^>]*>([\s\S]*?)</span>', chunk, re.I)
+            title = clean_text(sr_m.group(1)) if sr_m else ""
+        if not title:
+            continue
+        sub_m = re.search(r'class="base-search-card__subtitle[^"]*">([\s\S]*?)</h4>', chunk, re.I)
+        company = clean_text(sub_m.group(1)) if sub_m else ""
+        loc_m = re.search(r'class="job-search-card__location[^"]*">([\s\S]*?)</span>', chunk, re.I)
+        location = clean_text(loc_m.group(1)) if loc_m else ""
+        date_m = re.search(r'class="job-search-card__listdate[^"]*"[^>]*datetime="([^"]+)"', chunk, re.I)
+        posted = date_m.group(1)[:10] if date_m else ""
+        seen_ids.add(job_id)
+        cards.append({
+            "id": f"linkedin-{job_id}",
+            "source": "LinkedIn",
+            "title": title[:200],
+            "company": company[:160],
+            "location": location[:160],
+            "posted": posted,
+            "url": url or f"https://www.linkedin.com/jobs/view/{job_id}",
+            "description": "",
+            "detailId": job_id,
+            "detailLang": "",
+        })
+    return cards
+
+
+def search_linkedin(query: str, province: str = "", city: str = "") -> list[dict]:
+    location = city or (PROVINCE_FULL_NAMES.get(province) if province in PROVINCE_FULL_NAMES else None) or "Canada"
+    params = {"keywords": query, "location": location}
+    # Two pages of 10 cards each; fetched concurrently to keep scan latency low.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pages = [pool.submit(_linkedin_fetch, f"{LINKEDIN_SEARCH_URL}?{urlencode({**params, 'start': str(start)})}") for start in (0, 10)]
+    jobs: list[dict] = []
+    seen_ids = set()
+    failures = 0
+    for page in pages:
+        try:
+            markup = page.result()
+        except Exception:
+            failures += 1
+            continue
+        for job in parse_linkedin_cards(markup):
+            if job["detailId"] not in seen_ids:
+                seen_ids.add(job["detailId"])
+                jobs.append(job)
+    # A single failed page is a partial result; every page failing means the
+    # source is down, so raise and let scan_jobs mark it unavailable.
+    if failures == len(pages):
+        raise RuntimeError("LinkedIn search pages were unreachable")
+    return jobs[:25]
+
+
+def _linkedin_extract_div(markup: str, class_name: str) -> str | None:
+    open_m = re.search(rf'<div[^>]*class="[^"]*{re.escape(class_name)}[^"]*"[^>]*>', markup, re.I)
+    if not open_m:
+        return None
+    i = open_m.end()
+    depth = 1
+    while depth > 0 and i < len(markup):
+        next_open = markup.find("<div", i)
+        next_close = markup.find("</div>", i)
+        if next_close == -1:
+            return None
+        if next_open != -1 and next_open < next_close:
+            depth += 1
+            i = next_open + 4
+        else:
+            depth -= 1
+            i = next_close + 6
+    return markup[open_m.end():i - 6]
+
+
+def parse_linkedin_detail(markup: str, job_id: str) -> dict:
+    title_m = re.search(r'class="(?:top-card-layout__title|topcard__title)[^"]*"[^>]*>([\s\S]*?)</h[12]>', markup, re.I)
+    title = clean_text(title_m.group(1)) if title_m else ""
+    org_m = re.search(r'class="topcard__org-name-link[^"]*"[^>]*href="[^"]+"[^>]*>([\s\S]*?)</a>', markup, re.I)
+    company = clean_text(org_m.group(1)) if org_m else ""
+    loc_m = re.search(r'class="topcard__flavor topcard__flavor--bullet"[^>]*>([\s\S]*?)</span>', markup, re.I)
+    location = clean_text(loc_m.group(1)) if loc_m else ""
+    desc_html = _linkedin_extract_div(markup, "show-more-less-html__markup") or _linkedin_extract_div(markup, "description__text")
+    description = clean_text(desc_html)[:40_000] if desc_html else ""
+    return {
+        "title": title,
+        "company": company,
+        "jobLocation": location,
+        "description": description,
+        "url": f"https://www.linkedin.com/jobs/view/{job_id}",
+    }
+
+
+def get_linkedin_detail(posting_id: str) -> dict:
+    clean_id = re.sub(r"^linkedin-", "", str(posting_id))
+    if not re.fullmatch(r"\d{6,12}", clean_id):
+        raise ValueError("Choose a valid LinkedIn posting")
+    markup = _linkedin_fetch(f"{LINKEDIN_DETAIL_URL}/{clean_id}")
+    return parse_linkedin_detail(markup, clean_id)
 
 
 def scan_jobs(body: dict) -> dict:
@@ -312,6 +487,7 @@ def scan_jobs(body: dict) -> dict:
     calls = [
         ("Freehire", search_freehire, (query, province, city)),
         ("Eluta", search_eluta, (query, eluta_loc)),
+        ("LinkedIn", search_linkedin, (query, province, city)),
     ]
     if language in {"fr", "both"}:
         calls.append(("Guichet-Emplois", search_job_bank, (query, province, "fr", city)))
@@ -355,6 +531,8 @@ def get_job_bank_detail(posting_id: str, language: str) -> dict:
 def get_job_detail(posting_id: str, language: str = "en", source: str = "") -> dict:
     source_lower = str(source or "").lower()
     posting_str = str(posting_id or "")
+    if source_lower == "linkedin" or posting_str.startswith("linkedin-"):
+        return get_linkedin_detail(posting_str)
     if source_lower == "eluta" or posting_str.startswith("eluta-") or re.fullmatch(r"[0-9a-f]{20,40}", posting_str):
         return get_eluta_detail(posting_str)
     return get_job_bank_detail(posting_str, language)
